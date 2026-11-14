@@ -3,6 +3,7 @@ import * as DB from './db.js';
 import * as A from './analysis.js';
 import * as P from './pose.js';
 import { progressChart, scatterChart } from './charts.js';
+import * as PR from './programme.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const view = $('#view');
@@ -47,6 +48,20 @@ function metricValueForChart(key, v) {
   if (key === 'speed') return speedOut(v);
   if (A.METRIC_BY_KEY[key].unit === 's') return v * 1000;
   return v;
+}
+
+function lightsFor(d, others) {
+  const lights = {};
+  for (const m of A.METRICS) { const l = A.lightFor(m.key, d.metrics?.[m.key], targets, others.map(o => o.metrics?.[m.key])); if (l) lights[m.key] = l; }
+  return lights;
+}
+function faultCard(f, opts = {}) {
+  return `<div class="fault ${opts.level ? 'fault-' + opts.level : ''}">
+    <div class="row between"><b>${opts.level ? LIGHT_SHAPE[opts.level] + ' ' : ''}${esc(f.name)}</b>${f.id <= 4 ? '<span class="tag">injury risk</span>' : ''}</div>
+    ${opts.because ? `<p class="small muted m0">Flagged by: ${opts.because.map(esc).join(', ')}</p>` : `<p class="small muted m0">${esc(f.see)}</p>`}
+    <p class="cue-line">Cue: “${esc(f.cue)}”</p>
+    <ul class="drills">${f.drills.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+    ${opts.action || ''}</div>`;
 }
 
 // ---------- UI helpers ----------
@@ -180,13 +195,59 @@ async function viewPlayer(id) {
       ${p.notes ? `<p class="small notes">${esc(p.notes)}</p>` : ''}
       <a class="btn primary full" href="#new/${id}">🎥 Analyse a new delivery</a>
     </div>
-    <div class="tabs" id="tabs"><button data-t="deliveries">Deliveries (${ds.length})</button><button data-t="progress">Progress</button><button data-t="links">What drives pace?</button></div>
+    <div class="tabs" id="tabs"><button data-t="deliveries">Deliveries (${ds.length})</button><button data-t="progress">Progress</button><button data-t="programme">Programme</button><button data-t="links">What drives pace?</button></div>
     <div id="tabbody"></div>`;
   const tabs = $('#tabs');
   const show = t => { playerTab = t; tabs.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.t === t)); renderTab(); };
   tabs.onclick = e => { if (e.target.dataset.t) show(e.target.dataset.t); };
   const body = $('#tabbody');
+  function renderProgramme() {
+    const prog = (p.programme ||= { start: '', faults: [] });
+    const save = async () => { await DB.put('players', p); renderProgramme(); };
+    const a = age(p.dob), cap = PR.ballCap(a);
+    const wk = prog.start ? PR.weekFor(prog.start, today()) : null;
+    const W = wk >= 1 && wk <= 12 ? PR.WEEKS[wk - 1] : null;
+    // suggestions from the latest session
+    const lastDate = ds.length ? ds[ds.length - 1].date : null;
+    const sess = ds.filter(d => d.date === lastDate);
+    const tally = {};
+    for (const d of sess) for (const x of PR.drillsFor(lightsFor(d, ds.filter(o => o.id !== d.id)), d.metrics || {}, targets)) { const t = (tally[x.fault.id] ||= { fault: x.fault, n: 0, red: 0 }); t.n++; if (x.level === 'red') t.red++; }
+    const sugg = Object.values(tally).filter(t => t.n >= sess.length / 2 && !prog.faults.includes(t.fault.id)).sort((x, y) => x.fault.id - y.fault.id);
+    const full = prog.faults.length >= 2;
+    body.innerHTML = `
+      <div class="card">
+        <h4 class="m0">12-week winter programme</h4>
+        ${!prog.start ? `<p class="small muted">Three four-week blocks: assess and re-pattern, build, then transfer to match intensity. Set the date of week 1 to see what this bowler should be doing each week.</p>` : ''}
+        <div class="form"><label>Week 1 starts<input type="date" id="pstart" value="${esc(prog.start)}"></label></div>
+        ${prog.start && wk < 1 ? `<p class="small">Starts ${fmtDate(prog.start)}.</p>` : ''}
+        ${wk > 12 ? `<p class="small">Programme finished. Do the final film against week 1 and set an individual summer plan, or set a new start date.</p>` : ''}
+        ${W ? `<div class="week-now"><div class="row between"><b>Week ${W.w} of 12</b><span class="tag">${W.block}</span></div>
+          <p class="m0"><b>Skill:</b> ${esc(W.skill)}</p><p class="m0"><b>Strength:</b> ${esc(W.sc)}</p>
+          <p class="m0"><b>Balls this session:</b> ${esc(W.balls)}${cap ? ` · cap for age ${a}: ${cap}, whichever is lower` : ''}</p>
+          ${PR.FILM_WEEKS.includes(W.w) ? `<p class="m0 small">🎥 Filming week — analyse deliveries in the app and compare with week 1.</p>` : ''}</div>` : ''}
+        ${prog.start ? `<details class="small"><summary>All 12 weeks</summary><div class="weeks">${PR.WEEKS.map(x => `<div class="wk ${x.w === wk ? 'on' : ''}"><b>${x.w}</b><span><i>${x.block}.</i> ${esc(x.skill)} <span class="muted">· ${esc(x.sc)} · ${esc(x.balls)} balls</span></span></div>`).join('')}</div></details>` : ''}
+      </div>
+      <h4 class="section">Priority faults (${prog.faults.length} of 2)</h4>
+      <p class="small muted sidepad">Fix one or two at a time, injury-risk faults first. One cue per session.</p>
+      ${prog.faults.map(id => faultCard(PR.FAULT_BY_ID[id], { action: `<button class="btn sm" data-rm="${id}">Done / remove</button>` })).join('') || '<div class="card small muted">None set yet. Add from the suggestions or the library below.</div>'}
+      ${sugg.length ? `<h4 class="section">Suggested from the latest session (${fmtDate(lastDate)})</h4>${sugg.map(t => faultCard(t.fault, { level: t.red ? 'red' : 'amber', because: [`${t.n} of ${sess.length} deliveries`], action: full ? '' : `<button class="btn sm primary" data-add="${t.fault.id}">Set as priority</button>` })).join('')}` : ''}
+      <div class="card form"><label>Add from the problem / fix library
+        <select id="libsel"><option value="">Choose a fault…</option>${PR.FAULTS.filter(f => !prog.faults.includes(f.id)).map(f => `<option value="${f.id}">${f.id}. ${esc(f.name)}${PR.MEASURED.includes(f.id) ? '' : ' (coach’s eye)'}</option>`).join('')}</select></label>
+        <span class="hint">The app measures faults 2, 3, 5 and 12 from side-on video. The others need you to judge from front-on or behind.</span>
+        <div id="libshow"></div></div>
+      <div class="note risk">⚠️ Stop a bowler who reports back pain on one side, especially when leaning back. Refer to a physio; do not bowl through it.</div>`;
+    $('#pstart').onchange = e => { prog.start = e.target.value; save(); };
+    body.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { prog.faults = prog.faults.filter(x => x !== +b.dataset.rm); save(); });
+    const add = id => { if (prog.faults.length >= 2) return toast('Two priorities at most — remove one first'); prog.faults.push(id); prog.faults.sort((x, y) => x - y); save(); };
+    body.querySelectorAll('[data-add]').forEach(b => b.onclick = () => add(+b.dataset.add));
+    $('#libsel').onchange = e => {
+      const f = PR.FAULT_BY_ID[e.target.value];
+      $('#libshow').innerHTML = f ? faultCard(f, { action: `<p class="small muted m0">Likely cause: ${esc(f.cause)}</p><button class="btn sm primary" id="libadd">Set as priority</button>` }) : '';
+      if (f) $('#libadd').onclick = () => add(f.id);
+    };
+  }
   function renderTab() {
+    if (playerTab === 'programme') return renderProgramme();
     if (!ds.length) { body.innerHTML = `<div class="card muted">No deliveries yet. Tap <b>Analyse a new delivery</b> to start.</div>`; return; }
     if (playerTab === 'deliveries') {
       const byDate = {}; [...ds].reverse().forEach(d => (byDate[d.date] ||= []).push(d));
@@ -640,13 +701,15 @@ async function viewDelivery(id) {
     const noneSet = A.EVENTS.every(e => d.events[e.key] == null);
     const autoNotes = noneSet ? [{ level: 'info', text: 'Mark the key moments under the video to get timings and angles.' }] : manual ? [{ level: 'info', text: 'Key moments set by hand.' }] : (d.notes || []).map(t => ({ level: 'info', text: t }));
     $('#notes').innerHTML = [...autoNotes, ...notes].map(n => `<div class="note ${n.level}">${n.level === 'risk' ? '⚠️' : n.level === 'tip' ? '💡' : 'ℹ️'} ${esc(n.text)}</div>`).join('');
-    const lights = {};
-    for (const m of A.METRICS) { const l = A.lightFor(m.key, d.metrics[m.key], targets, others.map(o => o.metrics?.[m.key])); if (l) lights[m.key] = l; }
+    const lights = lightsFor(d, others);
+    const fixes = PR.drillsFor(lights, d.metrics, targets);
+    const pri = p.programme?.faults || [];
     const cardKeys = ['speed', 'fk_knee_br', 'fk_change', 'trunk_flex', 'sep_max', 'counter_rot', 'stride_pct', 'approach', 'arm_vel', 'seq_ok'].filter(k => lights[k]);
     const count = c => Object.values(lights).filter(l => l.light === c).length;
     $('#score').innerHTML = (cardKeys.length ? `<div class="card tight"><div class="row between"><h4 class="m0">Scorecard</h4><span class="small tl-count"><span class="tl tl-green">●</span> ${count('green')} <span class="tl tl-amber">▲</span> ${count('amber')} <span class="tl tl-red">■</span> ${count('red')}</span></div>
       <div class="tiles">${cardKeys.map(k => { const m = A.METRIC_BY_KEY[k], l = lights[k]; return `<div class="tile tile-${l.light}"><span class="tv">${metricDisplay(k, d.metrics[k])}<small> ${m.bool ? '' : metricUnit(k)}</small></span><span class="tn">${m.label}</span><span class="ts">${LIGHT_SHAPE[l.light]} ${A.LIGHT_LABEL[l.light]}${l.basis === 'personal' ? ' · vs own avg' : ''}</span></div>`; }).join('')}</div>
-      <p class="small muted m0">● Good ▲ Work on ■ Focus. Targets are coaching guides — change them in Settings.</p></div>` : '');
+      <p class="small muted m0">● Good ▲ Work on ■ Focus. Targets are coaching guides — change them in Settings.</p></div>` : '')
+      + (fixes.length ? `<h4 class="section">Drills to fix this</h4>${fixes.map(x => faultCard(x.fault, { level: x.level, because: x.because.map(k => A.METRIC_BY_KEY[k].label), action: pri.includes(x.fault.id) ? '<span class="tag">★ current priority</span>' : `<button class="btn sm" data-pri="${x.fault.id}">Set as priority</button>` })).join('')}<p class="small muted sidepad">From your coaching programme's problem / fix library. Faults seen from front-on or behind (side-bend, head, front arm) are under the player's Programme tab.</p>` : '');
     const groups = [...new Set(A.METRICS.map(m => m.group))];
     $('#mx').innerHTML = groups.map(g => {
       const ms = A.METRICS.filter(m => m.group === g && !(m.key === 'stride_cm' && d.metrics.stride_cm == null));
@@ -665,6 +728,13 @@ async function viewDelivery(id) {
     }).join('');
   }
   $('#cmp').onchange = renderMetrics;
+  $('#score').addEventListener('click', async e => {
+    const b = e.target.closest('[data-pri]'); if (!b || !p.id) return;
+    const prog = (p.programme ||= { start: '', faults: [] });
+    if (prog.faults.length >= 2) return toast('Two priorities at most — remove one in the Programme tab');
+    prog.faults.push(+b.dataset.pri); prog.faults.sort((x, y) => x - y);
+    await DB.put('players', p); toast('Added to ' + p.name + '’s priorities'); renderMetrics();
+  });
   const saveField = async () => {
     d.metrics.speed = speedIn($('#spd').value); if (d.metrics.speed == null) delete d.metrics.speed;
     d.date = $('#dt').value || d.date; d.label = $('#lbl').value.trim(); d.comments = $('#cm').value;
@@ -749,6 +819,7 @@ function viewGuide() {
         <li><b>Front knee at release</b> — a straighter, braced front leg is one of the most consistent links with pace.</li>
         <li><b>Kinematic sequence</b> — pelvis, then trunk, then arm should peak in that order.</li>
         <li><b>Shoulder counter-rotation over ~30°</b> is linked with lower-back injury in young quicks — get a front-on video and a professional opinion.</li>
+        <li><b>Drills and programme</b> — amber and red ratings link to the problem / fix library from your coaching programme. Each player's <i>Programme</i> tab shows the current week of the 12-week schedule and their one or two priority faults.</li>
         <li><b>What drives pace?</b> — enter speed-gun readings and the app shows which measures move with ball speed for each bowler.</li>
       </ul>
     </div>`;

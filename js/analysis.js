@@ -468,6 +468,7 @@ export function pearson(xs, ys) {
 // Guide targets. 'higher': green ≥ g, amber ≥ a. 'lower': green ≤ g, amber ≤ a. 'range': green lo–hi, amber within m outside.
 // Values are coaching guides drawn from fast-bowling research on adult/senior bowlers — edit them for juniors in Settings.
 export const DEFAULT_TARGETS = {
+  fk_knee_ffc: { type: 'higher', g: 160, a: 145, why: 'Front leg should land braced (160–180°).' },
   fk_knee_br: { type: 'higher', g: 160, a: 145, why: 'Braced front leg (≥160°) is linked with higher ball speed.' },
   fk_change: { type: 'higher', g: 0, a: -10, why: 'Front knee should hold or straighten after landing.' },
   fk_flex: { type: 'lower', g: 10, a: 20, why: 'Less collapse of the front knee keeps energy moving up the chain.' },
