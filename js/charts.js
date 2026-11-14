@@ -25,7 +25,7 @@ function tooltip(container) {
 }
 
 // points: [{ date:'YYYY-MM-DD', value, id }], chronological.
-export function progressChart(container, points, { unit = '', dp = 1, risk = null, onPick } = {}) {
+export function progressChart(container, points, { unit = '', dp = 1, risk = null, target = null, onPick } = {}) {
   container.innerHTML = '';
   container.classList.add('chart');
   if (!points.length) { container.innerHTML = '<p class="muted">No data for this measure yet.</p>'; return; }
@@ -35,16 +35,25 @@ export function progressChart(container, points, { unit = '', dp = 1, risk = nul
   const vals = points.map(p => p.value);
   let mn = Math.min(...vals), mx = Math.max(...vals);
   if (risk != null) { mn = Math.min(mn, risk); mx = Math.max(mx, risk); }
+  if (target) { const th = target.type === 'range' ? [target.lo, target.hi] : [target.g, target.a]; mn = Math.min(mn, ...th); mx = Math.max(mx, ...th); }
   const pad = (mx - mn) * 0.1 || Math.abs(mx) * 0.1 || 1;
   const { lo, hi, ticks } = niceTicks(mn - pad, mx + pad);
   const n = points.length;
   const X = i => m.l + (n === 1 ? (W - m.l - m.r) / 2 : (i * (W - m.l - m.r)) / (n - 1));
   const Y = v => m.t + (1 - (v - lo) / (hi - lo)) * (H - m.t - m.b);
+  if (target) {
+    // traffic-light bands behind the data
+    const band = (a, b, cls) => { const y1 = Y(Math.min(hi, Math.max(lo, b))), y2 = Y(Math.min(hi, Math.max(lo, a))); if (y2 - y1 > 0.5) el('rect', { x: m.l, y: y1, width: W - m.l - m.r, height: y2 - y1, class: 'band ' + cls }, svg); };
+    const INF = 1e9;
+    if (target.type === 'higher') { band(target.g, INF, 'g'); band(target.a, target.g, 'a'); band(-INF, target.a, 'r'); }
+    else if (target.type === 'lower') { band(-INF, target.g, 'g'); band(target.g, target.a, 'a'); band(target.a, INF, 'r'); }
+    else if (target.type === 'range') { band(target.lo, target.hi, 'g'); band(target.lo - target.m, target.lo, 'a'); band(target.hi, target.hi + target.m, 'a'); band(-INF, target.lo - target.m, 'r'); band(target.hi + target.m, INF, 'r'); }
+  }
   for (const tv of ticks) {
     el('line', { x1: m.l, x2: W - m.r, y1: Y(tv), y2: Y(tv), class: 'grid' }, svg);
     el('text', { x: m.l - 6, y: Y(tv) + 4, 'text-anchor': 'end', class: 'axis' }, svg).textContent = +tv.toFixed(3);
   }
-  if (risk != null) {
+  if (risk != null && !target) {
     el('line', { x1: m.l, x2: W - m.r, y1: Y(risk), y2: Y(risk), class: 'risk-line' }, svg);
     el('text', { x: W - m.r, y: Y(risk) - 4, 'text-anchor': 'end', class: 'risk-text' }, svg).textContent = `⚠ ${risk}${unit}`;
   }

@@ -152,3 +152,45 @@ input[type=range] { accent-color: var(--brand2); height: 32px; }
 .guide h3 { color: var(--brand2); margin-bottom: 6px; }
 .prep { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 0 20%; background: rgba(0,0,0,.6); color: #fff; font-size: .9rem; text-align: center; border-radius: 10px; }
 .ctrls .btn#spdbtn { flex: .8; }
+
+/* traffic lights */
+:root { --tl-g: #0e7c3a; --tl-a: #b45f06; --tl-r: #c62828; }
+@media (prefers-color-scheme: dark) { :root { --tl-g: #3fb950; --tl-a: #e3a008; --tl-r: #f47067; } }
+.tl { display: inline-block; width: 1.1em; font-size: .85em; margin-right: 4px; text-align: center; }
+.tl-green { color: var(--tl-g); } .tl-amber { color: var(--tl-a); } .tl-red { color: var(--tl-r); }
+.tl-count { font-weight: 700; font-variant-numeric: tabular-nums; }
+.tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 10px 0; }
+.tile { display: flex; flex-direction: column; padding: 10px; border-radius: 12px; border: 1px solid var(--line); border-left-width: 6px; background: var(--bg); }
+.tile .tv { font-size: 1.35rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.tile .tv small { font-size: .7rem; font-weight: 500; color: var(--muted); }
+.tile .tn { font-size: .8rem; color: var(--ink2); }
+.tile .ts { font-size: .75rem; font-weight: 700; margin-top: 4px; }
+.tile-green { border-left-color: var(--tl-g); background: color-mix(in srgb, var(--tl-g) 10%, var(--card)); } .tile-green .ts { color: var(--tl-g); }
+.tile-amber { border-left-color: var(--tl-a); background: color-mix(in srgb, var(--tl-a) 12%, var(--card)); } .tile-amber .ts { color: var(--tl-a); }
+.tile-red { border-left-color: var(--tl-r); background: color-mix(in srgb, var(--tl-r) 10%, var(--card)); } .tile-red .ts { color: var(--tl-r); }
+.chart .band.g { fill: var(--tl-g); opacity: .11; } .chart .band.a { fill: var(--tl-a); opacity: .12; } .chart .band.r { fill: var(--tl-r); opacity: .1; }
+.tgt-row { display: grid; grid-template-columns: 1fr 84px 84px; gap: 8px; align-items: end; padding: 8px 0; border-top: 1px solid var(--line); font-size: .88rem; }
+.tgt-row label { font-size: .72rem; color: var(--muted); }
+.tgt-row input { width: 100%; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); font: inherit; }
+/* key moments */
+.km { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.km-next { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; padding: 10px; border-radius: 12px; background: color-mix(in srgb, var(--brand2) 10%, var(--card)); border: 1px solid var(--brand2); font-size: .9rem; }
+.evset .btn.set::before { content: '✓ '; color: var(--tl-g); }
+.warn-text { color: var(--warn); margin: 6px 0 0; }
+.km details { margin-top: 6px; } .km summary { cursor: pointer; padding: 4px 0; }
+.link-note { display: block; color: inherit; text-decoration: none; }
+.reftag { padding-top: 4px; }
+/* library */
+.tabbtn { flex: 1; white-space: nowrap; text-align: center; border: 1px solid var(--line); background: var(--card); color: var(--ink2); padding: 9px 10px; border-radius: 99px; font-size: .88rem; text-decoration: none; }
+.tabbtn.on { background: var(--brand2); color: #fff; border-color: transparent; }
+.tabbtn.riskt.on { background: var(--warn); }
+#rv { margin-bottom: 8px; }
+.cue { display: flex; flex-wrap: wrap; gap: 4px; min-height: 54px; align-content: flex-start; margin-top: 8px; }
+.cue span { background: var(--ink); color: var(--card); font-size: .78rem; padding: 3px 8px; border-radius: 6px; }
+.legend { margin: 8px 0 0; color: var(--muted); }
+.legend i { display: inline-block; width: 14px; height: 4px; border-radius: 2px; margin: 0 4px 2px 8px; vertical-align: middle; }
+.legend i.dash { height: 0; background: none !important; border-top: 2px dashed; }
+.look { padding: 5px 0; border-top: 1px solid var(--line); }
+.readout span.bad { color: var(--tl-r); }
+nav#nav a { font-size: .72rem; }
+.check { flex-wrap: wrap; } .check .hint { flex-basis: 100%; margin-left: 32px; }

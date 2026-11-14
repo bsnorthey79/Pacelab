@@ -463,3 +463,51 @@ export function pearson(xs, ys) {
   if (tiny(sxx, mx) || tiny(syy, my)) return null;
   return sxy / Math.sqrt(sxx * syy);
 }
+
+// ---------- traffic lights ----------
+// Guide targets. 'higher': green ≥ g, amber ≥ a. 'lower': green ≤ g, amber ≤ a. 'range': green lo–hi, amber within m outside.
+// Values are coaching guides drawn from fast-bowling research on adult/senior bowlers — edit them for juniors in Settings.
+export const DEFAULT_TARGETS = {
+  fk_knee_br: { type: 'higher', g: 160, a: 145, why: 'Braced front leg (≥160°) is linked with higher ball speed.' },
+  fk_change: { type: 'higher', g: 0, a: -10, why: 'Front knee should hold or straighten after landing.' },
+  fk_flex: { type: 'lower', g: 10, a: 20, why: 'Less collapse of the front knee keeps energy moving up the chain.' },
+  counter_rot: { type: 'lower', g: 20, a: 30, why: 'Above ~30° shoulder counter-rotation is linked with lower-back injury.' },
+  sep_max: { type: 'higher', g: 30, a: 15, why: 'Hips leading the shoulders stores energy for the trunk to release.' },
+  trunk_flex: { type: 'higher', g: 30, a: 15, why: 'Strong forward trunk flexion over a braced front leg adds pace.' },
+  stride_pct: { type: 'range', lo: 70, hi: 90, m: 10, why: 'Very short strides lose momentum; very long strides make bracing hard.' },
+  approach: { type: 'higher', g: 5, a: 4, why: 'Faster, controlled approach speed carries more momentum into the crease.' },
+  seq_ok: { type: 'bool', why: 'Pelvis → trunk → arm in order is the efficient pattern.' },
+};
+export const LIGHT_LABEL = { green: 'Good', amber: 'Work on', red: 'Focus' };
+
+export function lightFor(key, v, targets = DEFAULT_TARGETS, history = []) {
+  if (v == null || !Number.isFinite(v)) return null;
+  const t = targets[key];
+  if (t) {
+    if (t.type === 'bool') return { light: v ? 'green' : 'red', basis: 'guide', why: t.why };
+    let light;
+    if (t.type === 'higher') light = v >= t.g ? 'green' : v >= t.a ? 'amber' : 'red';
+    else if (t.type === 'lower') light = v <= t.g ? 'green' : v <= t.a ? 'amber' : 'red';
+    else { const off = v < t.lo ? t.lo - v : v > t.hi ? v - t.hi : 0; light = off === 0 ? 'green' : off <= t.m ? 'amber' : 'red'; }
+    return { light, basis: 'guide', why: t.why };
+  }
+  // No guide: compare with the bowler's own previous deliveries (needs 3+ and a pace direction).
+  const def = METRIC_BY_KEY[key];
+  const h = history.filter(Number.isFinite);
+  if (!def || !def.pace || h.length < 3) return null;
+  const mean = h.reduce((a, b) => a + b, 0) / h.length;
+  const sd = Math.sqrt(h.reduce((a, b) => a + (b - mean) ** 2, 0) / (h.length - 1)) || Math.abs(mean) * 0.03 || 1;
+  const z = (v - mean) / sd * (def.pace === 'higher' ? 1 : -1);
+  return { light: z >= 0 ? 'green' : z >= -1 ? 'amber' : 'red', basis: 'personal', why: 'Compared with this bowler’s own average.' };
+}
+
+// Rough action type from BFC alignment estimates (single camera — indicative only).
+export function actionType(m) {
+  if (m.sh_align_bfc == null || m.hip_align_bfc == null) return null;
+  const sep = Math.abs(m.hip_align_bfc - m.sh_align_bfc);
+  if ((m.counter_rot != null && m.counter_rot > 30) || sep > 30) return 'mixed';
+  const avg = (m.sh_align_bfc + m.hip_align_bfc) / 2;
+  if (avg < 30) return 'side-on';
+  if (avg > 60) return 'front-on';
+  return 'semi-open';
+}

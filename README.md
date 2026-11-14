@@ -22,7 +22,9 @@ The camera only works when the page is served over HTTPS, so the folder needs a 
 ## 3. Using it
 - **Players** → *+ Add player*: name, bowling arm, height (needed for stride length in cm and approach speed). You can edit or delete a player from their page.
 - **Analyse a new delivery**: choose a slow-motion video (best), record in the app, or open the camera app. Trim the clip from just before the jump to just after release. Then set the frame rate and say whether it was filmed in slow motion. Ball speed is optional.
-- **Review**: step frame by frame with the skeleton overlay. The app marks take-off, back foot contact, front foot contact and release automatically. Check them, and under *Adjust key moments* set any marker to the frame you're on.
+- **Key moments**: before analysing, choose *Auto-detect* or *I'll mark them*. On the review screen, step frame by frame and use the *Mark TO / BFC / FFC / BR here* buttons. The app prompts you for the next one. *Auto-detect* and *Clear* are always available.
+- **Scorecard**: each delivery gets traffic-light ratings (● Good, ▲ Work on, ■ Focus). Targets are coaching guides for senior bowlers; edit them under *Settings → Traffic-light targets*. Measures without a target are rated against the bowler's own average.
+- **Library**: animated 3D model bowlers for side-on, front-on, semi-open and mixed actions, viewable from the side, front and behind, with what to look for at each key moment. These are simplified models, not recordings of real players. Tick *⭐ Use as a reference example* on any analysed clip to add your own footage to the Library.
 - **Progress**: chart any measurement over the season, with the average for each session.
 - **What drives pace?**: once 4 or more deliveries have speed-gun readings, it shows which measurements move with ball speed for that bowler.
 - **Settings**: km/h or mph, tracking accuracy, whether to keep videos, CSV export for Excel, and backup/restore.

@@ -3,6 +3,7 @@ import * as DB from './db.js';
 import * as A from './analysis.js';
 import * as P from './pose.js';
 import { progressChart, scatterChart } from './charts.js';
+import * as R from './reference.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const view = $('#view');
@@ -12,7 +13,16 @@ const fmtDate = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { w
 
 // ---------- settings ----------
 const SETTINGS_KEY = 'pacelab.settings';
-const settings = Object.assign({ unit: 'kmh', complexity: 1, keepVideo: true }, (() => { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch (e) { return {}; } })());
+const settings = Object.assign({ unit: 'kmh', complexity: 1, keepVideo: true, autoDetect: true }, (() => { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch (e) { return {}; } })());
+const TARGETS_KEY = 'pacelab.targets';
+function loadTargets() {
+  let st = {}; try { st = JSON.parse(localStorage.getItem(TARGETS_KEY)) || {}; } catch (e) { /* ignore */ }
+  const out = {}; for (const k in A.DEFAULT_TARGETS) out[k] = { ...A.DEFAULT_TARGETS[k], ...(st[k] || {}) };
+  return out;
+}
+let targets = loadTargets();
+const LIGHT_SHAPE = { green: '●', amber: '▲', red: '■' };
+const lightDot = l => (l ? `<span class="tl tl-${l.light}" title="${A.LIGHT_LABEL[l.light]}">${LIGHT_SHAPE[l.light]}</span>` : '');
 const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { /* ignore */ } };
 const KMH_PER_MPH = 1.609344;
 const speedOut = kmh => (kmh == null ? null : settings.unit === 'mph' ? kmh / KMH_PER_MPH : kmh);
@@ -82,6 +92,7 @@ async function route() {
     else if (name === 'delivery') await viewDelivery(id);
     else if (name === 'settings') await viewSettings();
     else if (name === 'guide') viewGuide();
+    else if (name === 'reference') await viewReference(id);
     else location.hash = 'players';
   } catch (e) {
     console.error(e);
@@ -198,7 +209,7 @@ async function viewPlayer(id) {
       const draw = () => {
         const def = A.METRIC_BY_KEY[progressMetric];
         const pts = ds.filter(d => d.metrics?.[progressMetric] != null).map(d => ({ id: d.id, date: d.date, value: metricValueForChart(progressMetric, d.metrics[progressMetric]), label: d.label }));
-        progressChart($('#pc'), pts, { unit: metricUnit(progressMetric), dp: def.unit === 's' ? 0 : def.dp, risk: def.risk ?? null, onPick: p => (location.hash = 'delivery/' + p.id) });
+        progressChart($('#pc'), pts, { unit: metricUnit(progressMetric), dp: def.unit === 's' ? 0 : def.dp, risk: def.risk ?? null, target: targets[progressMetric]?.type !== 'bool' ? targets[progressMetric] : null, onPick: p => (location.hash = 'delivery/' + p.id) });
         $('#pdesc').textContent = def.desc + (def.pace ? ` Pace link: ${def.pace === 'higher' ? 'higher' : 'lower'} tends to be better.` : '');
         const dates = [...new Set(pts.map(p => p.date))];
         const sAvg = dt => { const v = pts.filter(p => p.date === dt).map(p => p.value); return v.reduce((a, b) => a + b, 0) / v.length; };
@@ -304,11 +315,17 @@ async function stepTrim(p, blob, meta) {
       <label>Recorded in slow motion?
         <select id="cap"><option value="">No — normal speed</option><option>120</option><option>240</option><option>480</option><option>960</option></select>
         <span class="hint">If the file plays back slowed down, pick the rate it was captured at so timings are in real seconds.</span></label>
+      <label>Key moments (take-off, foot contacts, release)</label>
+      <div class="seg" id="kmode"><button type="button" data-v="auto">Auto-detect</button><button type="button" data-v="manual">I'll mark them</button></div>
+      <span class="hint">Either way you can check and move them frame by frame afterwards.</span>
       <label>Date<input id="date" type="date" value="${today()}"></label>
       <label>Ball speed (${speedUnit()}) <span class="muted">optional</span><input id="spd" type="number" inputmode="decimal" step="0.1" placeholder="from speed gun"></label>
       <label>Label <span class="muted">optional</span><input id="lbl" placeholder="e.g. Ball 3, yorker, new run-up"></label>
       <button class="btn primary full" id="an">Analyse</button>
     </div>`;
+  const kmode = $('#kmode');
+  const paintK = () => kmode.querySelectorAll('button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'auto') === !!settings.autoDetect));
+  kmode.onclick = e => { if (e.target.dataset.v) { settings.autoDetect = e.target.dataset.v === 'auto'; saveSettings(); paintK(); } }; paintK();
   const v = $('#v');
   let info;
   try { info = await P.loadVideo(v, blob); } catch (e) { view.innerHTML = `<div class="card"><h3>Can't open that video</h3><p>${esc(e.message)}</p><a class="btn" href="#new/${p.id}">Try another</a></div>`; return; }
@@ -341,7 +358,7 @@ async function stepTrim(p, blob, meta) {
     const nFrames = Math.floor((end - start) * fileFps);
     if (nFrames < 6) return toast('Clip too short');
     if (nFrames > 1200 && !(await modal(`<h3>Long clip</h3><p>${nFrames} frames to analyse — this may take several minutes. Trim it closer to the delivery for faster results.</p>`, [{ label: 'Trim', value: false }, { label: 'Analyse anyway', value: true, primary: true }]))) return;
-    stepAnalyse(p, v, blob, { start, end, fileFps, timeScale, captureFps: cap || fileFps, date: $('#date').value || today(), speed: speedIn($('#spd').value), label: $('#lbl').value.trim(), source: meta.source });
+    stepAnalyse(p, v, blob, { start, end, fileFps, timeScale, captureFps: cap || fileFps, date: $('#date').value || today(), speed: speedIn($('#spd').value), label: $('#lbl').value.trim(), source: meta.source, manual: !settings.autoDetect });
   };
 }
 
@@ -381,19 +398,22 @@ async function stepAnalyse(p, video, blob, opt) {
     location.hash = 'new/' + p.id; return;
   }
   const s = A.prepareSeries(res.frames, { width: res.width });
-  const { events, notes } = A.detectEvents(s, p.arm);
+  const auto = A.detectEvents(s, p.arm);
+  const notes = auto.notes;
+  const events = opt.manual ? { takeoff: null, bfc: null, ffc: null, br: null } : auto.events;
   const metrics = A.computeMetrics(s, events, p, { speed: opt.speed });
   const id = DB.uid();
   // snapshots at each event
   const imgs = {};
   for (const k of ['takeoff', 'bfc', 'ffc', 'br']) {
-    const i = events[k];
+    const i = auto.events[k];
     if (i != null) { const b = await P.snapshot(video, res.frames[i].mt); if (b) imgs[k] = { blob: b, frame: i }; }
   }
-  const thumb = await makeThumb(video, events.br != null ? res.frames[events.br].mt : (opt.start + opt.end) / 2, res.frames[events.br ?? 0]?.lm, p.arm, res.width);
+  const tb = auto.events.br ?? Math.floor(res.frames.length / 2);
+  const thumb = await makeThumb(video, res.frames[tb].mt, res.frames[tb]?.lm, p.arm, res.width);
   const d = {
     id, playerId: p.id, date: opt.date, label: opt.label, created: Date.now(),
-    events, autoEvents: { ...events }, notes, metrics, flags: { risk: metrics.counter_rot > 30 },
+    events, autoEvents: { ...auto.events }, manualMode: !!opt.manual, notes, metrics, flags: { risk: metrics.counter_rot > 30 },
     video: { start: opt.start, end: opt.end, fileFps: opt.fileFps, captureFps: opt.captureFps, timeScale: opt.timeScale, width: res.width, height: res.height, kept: !!settings.keepVideo },
     mts: res.frames.map(f => f.mt), thumb, comments: '',
   };
@@ -468,16 +488,16 @@ async function viewDelivery(id) {
       <div class="row between"><div><b>${fmtDate(d.date)}</b>${d.label ? ' · ' + esc(d.label) : ''}</div><div class="muted small">${d.video.captureFps} fps</div></div>
       <div class="stage"><canvas id="cv" width="${W}" height="${H}"></canvas><div class="frame-tag" id="ftag"></div></div>
       <div class="timeline" id="tl"></div>
-      <input type="range" id="sl" min="0" max="${s.n - 1}" value="${d.events.br ?? 0}" class="full">
+      <input type="range" id="sl" min="0" max="${s.n - 1}" value="${d.events.br ?? d.events.ffc ?? d.events.bfc ?? 0}" class="full">
       <div class="row between ctrls"><button class="btn sm" data-step="-10">⏪</button><button class="btn sm" data-step="-1">◀ 1</button><button class="btn sm" id="pl">▶︎</button><button class="btn sm" data-step="1">1 ▶</button><button class="btn sm" data-step="10">⏩</button><button class="btn sm" id="spdbtn">1×</button></div>
       <div class="evchips" id="evc"></div>
       <div class="readout" id="ro"></div>
-      <details class="adjust"><summary>Adjust key moments</summary>
-        <p class="small muted">Step to the exact frame, then tap the moment it shows. Metrics update straight away.</p>
-        <div class="evset">${A.EVENTS.map(e => `<button class="btn sm" data-set="${e.key}">${e.short}: this frame</button>`).join('')}</div>
-        <button class="btn sm" id="reauto">Reset to automatic</button>
-        <dl class="small muted defs">${A.EVENTS.map(e => `<dt>${e.short}</dt><dd>${e.desc}</dd>`).join('')}</dl>
-      </details>
+      <div class="km" id="km">
+        <div class="row between"><b>Key moments</b><span class="row gap"><button class="btn sm" id="reauto">Auto-detect</button><button class="btn sm" id="clr">Clear</button></span></div>
+        <div id="kmguide"></div>
+        <div class="evset">${A.EVENTS.map(e => `<button class="btn sm" data-set="${e.key}">Mark ${e.short} here</button>`).join('')}</div>
+        <details class="small muted"><summary>What are TO, BFC, FFC and BR?</summary><dl class="defs">${A.EVENTS.map(e => `<dt>${e.short}</dt><dd><b>${e.label}.</b> ${e.desc}</dd>`).join('')}</dl></details>
+      </div>
     </div>
     <div id="notes"></div>
     <div class="card form">
@@ -486,6 +506,10 @@ async function viewDelivery(id) {
       <label>Label<input id="lbl" value="${esc(d.label || '')}"></label>
       <label>Coach notes<textarea id="cm" rows="2">${esc(d.comments || '')}</textarea></label>
     </div>
+    <div id="score"></div>
+    <div class="card form reftag"><label class="check"><input type="checkbox" id="isref" ${d.ref ? 'checked' : ''}> ⭐ Use as a reference example <span class="hint">Shows this clip in the Library as an example of good technique.</span></label>
+      <div class="row gap" id="refopts" ${d.ref ? '' : 'hidden'}><label class="grow">Action<select id="refact">${Object.entries(R.ACTIONS).map(([k, a]) => `<option value="${k}" ${d.ref?.action === k ? 'selected' : ''}>${a.title}</option>`).join('')}</select></label>
+      <label class="grow">Filmed from<select id="refview">${['side', 'front', 'behind'].map(v => `<option value="${v}" ${d.ref?.view === v ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select></label></div></div>
     <div class="row between"><h4 class="section">Measurements</h4>
       <select id="cmp" class="sm"><option value="">Compare: player average</option>${others.map(o => `<option value="${o.id}">vs ${new Date(o.date + 'T12:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}${o.label ? ' ' + esc(o.label) : ''}${o.metrics?.speed != null ? ' · ' + metricDisplay('speed', o.metrics.speed) : ''}</option>`).join('')}</select></div>
     <div id="mx"></div>
@@ -539,6 +563,15 @@ async function viewDelivery(id) {
       const i = d.events[e.key];
       return `<button class="evchip ${i === cur ? 'on' : ''}" data-go="${e.key}" ${i == null ? 'disabled' : ''}><i style="background:${evColors[e.key]}"></i>${e.short}<small>${i == null ? '—' : ffcT != null ? ((s.t[i] - ffcT) * 1000 >= 0 ? '+' : '') + Math.round((s.t[i] - ffcT) * 1000) + ' ms' : (s.t[i]).toFixed(3) + ' s'}</small></button>`;
     }).join('');
+    const next = A.EVENTS.find(e => d.events[e.key] == null);
+    const seq = A.EVENTS.map(e => d.events[e.key]).filter(x => x != null);
+    const outOfOrder = seq.some((x, k) => k && x <= seq[k - 1]);
+    const HOW = { takeoff: 'the last foot leaves the ground into the jump', bfc: 'the back foot first touches the ground', ffc: 'the front foot first touches the ground', br: 'the ball leaves the hand' };
+    $('#kmguide').innerHTML = (next
+      ? `<div class="km-next"><span><b>Next: ${next.label}.</b> Step to the frame where ${HOW[next.key]}.</span><button class="btn primary" data-set="${next.key}">Mark ${next.short} at this frame</button></div>`
+      : `<p class="small muted m0">All four set. To move one, step to the right frame and tap its button.</p>`)
+      + (outOfOrder ? '<p class="small warn-text">⚠ Markers are out of order — they should run TO → BFC → FFC → BR.</p>' : '');
+    view.querySelectorAll('.evset [data-set]').forEach(b => b.classList.toggle('set', d.events[b.dataset.set] != null));
   }
   async function draw() {
     const token = ++drawToken;
@@ -585,10 +618,13 @@ async function viewDelivery(id) {
     }
   };
   onLeave(() => { playing = false; alive = false; for (const bm of cache.values()) bm.close(); cache.clear(); Object.values(snapImgs).forEach(im => URL.revokeObjectURL(im.src)); });
-  view.querySelectorAll('[data-set]').forEach(b => b.onclick = async () => {
-    d.events[b.dataset.set] = cur; await recompute(); toast(A.EVENTS.find(e => e.key === b.dataset.set).label + ' set');
+  $('#km').addEventListener('click', async e => {
+    const b = e.target.closest('[data-set]'); if (!b) return;
+    if (playing) stopPlay();
+    d.events[b.dataset.set] = cur; await recompute(); toast(A.EVENTS.find(ev => ev.key === b.dataset.set).label + ' marked');
   });
-  $('#reauto').onclick = async () => { d.events = { ...d.autoEvents }; await recompute(); toast('Automatic markers restored'); };
+  $('#reauto').onclick = async () => { const r = A.detectEvents(s, p.arm); d.autoEvents = { ...r.events }; d.notes = r.notes; d.events = { ...r.events }; await recompute(); toast('Auto-detected — check each marker'); };
+  $('#clr').onclick = async () => { d.events = { takeoff: null, bfc: null, ffc: null, br: null }; await recompute(); toast('Markers cleared — mark them yourself'); };
 
   async function recompute() {
     const speed = d.metrics.speed;
@@ -606,8 +642,18 @@ async function viewDelivery(id) {
     }
     const notes = A.coachingNotes(d.metrics);
     const manual = JSON.stringify(d.events) !== JSON.stringify(d.autoEvents);
-    const autoNotes = manual ? [{ level: 'info', text: 'Key moments adjusted by hand.' }] : (d.notes || []).map(t => ({ level: 'info', text: t }));
+    const noneSet = A.EVENTS.every(e => d.events[e.key] == null);
+    const autoNotes = noneSet ? [{ level: 'info', text: 'Mark the key moments under the video to get timings and angles.' }] : manual ? [{ level: 'info', text: 'Key moments set by hand.' }] : (d.notes || []).map(t => ({ level: 'info', text: t }));
     $('#notes').innerHTML = [...autoNotes, ...notes].map(n => `<div class="note ${n.level}">${n.level === 'risk' ? '⚠️' : n.level === 'tip' ? '💡' : 'ℹ️'} ${esc(n.text)}</div>`).join('');
+    const lights = {};
+    for (const m of A.METRICS) { const l = A.lightFor(m.key, d.metrics[m.key], targets, others.map(o => o.metrics?.[m.key])); if (l) lights[m.key] = l; }
+    const cardKeys = ['speed', 'fk_knee_br', 'fk_change', 'trunk_flex', 'sep_max', 'counter_rot', 'stride_pct', 'approach', 'arm_vel', 'seq_ok'].filter(k => lights[k]);
+    const count = c => Object.values(lights).filter(l => l.light === c).length;
+    const act = A.actionType(d.metrics);
+    $('#score').innerHTML = (cardKeys.length ? `<div class="card tight"><div class="row between"><h4 class="m0">Scorecard</h4><span class="small tl-count"><span class="tl tl-green">●</span> ${count('green')} <span class="tl tl-amber">▲</span> ${count('amber')} <span class="tl tl-red">■</span> ${count('red')}</span></div>
+      <div class="tiles">${cardKeys.map(k => { const m = A.METRIC_BY_KEY[k], l = lights[k]; return `<div class="tile tile-${l.light}"><span class="tv">${metricDisplay(k, d.metrics[k])}<small> ${m.bool ? '' : metricUnit(k)}</small></span><span class="tn">${m.label}</span><span class="ts">${LIGHT_SHAPE[l.light]} ${A.LIGHT_LABEL[l.light]}${l.basis === 'personal' ? ' · vs own avg' : ''}</span></div>`; }).join('')}</div>
+      <p class="small muted m0">● Good ▲ Work on ■ Focus. Targets are coaching guides — change them in Settings.</p></div>` : '')
+      + (act ? `<a class="note link-note" href="#reference/${act}">Likely action type: <b>${R.ACTIONS[act].title}</b> (estimate) — see the model ›</a>` : '');
     const groups = [...new Set(A.METRICS.map(m => m.group))];
     $('#mx').innerHTML = groups.map(g => {
       const ms = A.METRICS.filter(m => m.group === g && !(m.key === 'stride_cm' && d.metrics.stride_cm == null));
@@ -621,7 +667,7 @@ async function viewDelivery(id) {
           if (Math.abs(dv) >= 10 ** -dp / 2) delta = `<span class="delta ${good == null ? '' : good ? 'up' : 'down'}">${dv > 0 ? '+' : ''}${dv.toFixed(dp)} vs ${refLabel}</span>`;
         }
         const risk = m.risk != null && v > m.risk;
-        return `<details class="metric ${risk ? 'risk' : ''}"><summary><span class="ml">${m.label}</span><span class="mv">${metricDisplay(m.key, v)} <small>${v != null && !m.bool ? metricUnit(m.key) : ''}</small></span>${delta}</summary><p class="small muted">${esc(m.desc)}${m.pace ? ` <b>Pace link:</b> ${m.pace} is generally better.` : ''}</p></details>`;
+        return `<details class="metric ${risk ? 'risk' : ''}"><summary><span class="ml">${lightDot(lights[m.key])}${m.label}</span><span class="mv">${metricDisplay(m.key, v)} <small>${v != null && !m.bool ? metricUnit(m.key) : ''}</small></span>${delta}</summary><p class="small muted">${esc(m.desc)}${m.pace ? ` <b>Pace link:</b> ${m.pace} is generally better.` : ''}${lights[m.key] ? ` <b>${A.LIGHT_LABEL[lights[m.key].light]}:</b> ${esc(lights[m.key].why)}` : ''}</p></details>`;
       }).join('')}</div>`;
     }).join('');
   }
@@ -632,6 +678,8 @@ async function viewDelivery(id) {
     await DB.put('deliveries', d); renderMetrics();
   };
   ['#spd', '#dt', '#lbl', '#cm'].forEach(sel => $(sel).onchange = saveField);
+  const saveRef = async () => { const on = $('#isref').checked; $('#refopts').hidden = !on; d.ref = on ? { action: $('#refact').value, view: $('#refview').value } : null; await DB.put('deliveries', d); };
+  ['#isref', '#refact', '#refview'].forEach(sel => $(sel).onchange = saveRef);
   $('#deld').onclick = async () => { if (await confirmBox('Delete this delivery?', 'The video, tracking data and measurements will be removed.')) { await DB.deleteDelivery(id); toast('Deleted'); location.hash = 'player/' + d.playerId; } };
   renderMetrics();
   await draw();
@@ -650,6 +698,12 @@ async function viewSettings() {
       <span class="hint">Accurate is best for fast arm movement but is slower, especially on older phones.</span>
       <label class="check"><input type="checkbox" id="kv" ${settings.keepVideo ? 'checked' : ''}> Keep videos with each delivery <span class="hint">Turn off to save space — skeleton and key-frame photos are still kept.</span></label>
     </div>
+    <div class="card"><h4 class="m0">Traffic-light targets</h4>
+      <p class="small muted">● Good / ▲ Work on / ■ Focus. Defaults are guides for senior bowlers — ease them for juniors. Measures without a target are rated against the bowler's own average.</p>
+      <div class="tgt">${Object.entries(targets).filter(([, t]) => t.type !== 'bool').map(([k, t]) => { const m = A.METRIC_BY_KEY[k]; const f = (name, val) => `<input type="number" step="any" inputmode="decimal" data-k="${k}" data-f="${name}" value="${val}">`;
+        return `<div class="tgt-row"><span>${m.label} <small class="muted">(${m.unit})</small></span>${t.type === 'range' ? `<label>Good from${f('lo', t.lo)}</label><label>to${f('hi', t.hi)}</label>` : `<label>${t.type === 'higher' ? 'Good ≥' : 'Good ≤'}${f('g', t.g)}</label><label>${t.type === 'higher' ? 'Focus <' : 'Focus >'}${f('a', t.a)}</label>`}</div>`; }).join('')}</div>
+      <button class="btn sm" id="tgreset">Reset to defaults</button>
+    </div>
     <div class="card"><h4 class="m0">Your data</h4>
       <p class="small muted">${players.length} players · ${ds.length} deliveries${est ? ` · using ${(est.usage / 1048576).toFixed(0)} MB on this phone` : ''}. Everything is stored only on this phone.</p>
       <button class="btn full" id="csv">Export measurements (CSV for Excel)</button>
@@ -662,6 +716,14 @@ async function viewSettings() {
   const seg = (sel, key, conv) => { const el = $(sel); const paint = () => el.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(settings[key]) === b.dataset.v)); el.onclick = e => { if (e.target.dataset.v) { settings[key] = conv(e.target.dataset.v); saveSettings(); paint(); } }; paint(); };
   seg('#unit', 'unit', v => v); seg('#cx', 'complexity', Number);
   $('#kv').onchange = e => { settings.keepVideo = e.target.checked; saveSettings(); };
+  view.querySelectorAll('.tgt input').forEach(inp => inp.onchange = () => {
+    const v = Number(inp.value); if (!Number.isFinite(v)) return;
+    let st = {}; try { st = JSON.parse(localStorage.getItem(TARGETS_KEY)) || {}; } catch (e) { /* ignore */ }
+    (st[inp.dataset.k] ||= {})[inp.dataset.f] = v;
+    try { localStorage.setItem(TARGETS_KEY, JSON.stringify(st)); } catch (e) { /* ignore */ }
+    targets = loadTargets(); toast('Target saved');
+  });
+  $('#tgreset').onclick = () => { try { localStorage.removeItem(TARGETS_KEY); } catch (e) { /* ignore */ } targets = loadTargets(); viewSettings(); toast('Targets reset'); };
   $('#csv').onclick = async () => {
     const pm = Object.fromEntries(players.map(p => [p.id, p]));
     const keys = A.METRICS.map(m => m.key);
@@ -690,7 +752,7 @@ function viewGuide() {
         <li><b>Same set-up every time.</b> Mark where the phone stands so progress compares like with like.</li>
       </ol>
       <h3>Key moments</h3>
-      <p><b>TO</b> take-off into the bound · <b>BFC</b> back foot lands · <b>FFC</b> front foot lands · <b>BR</b> ball release. The app finds these automatically; check them on the review screen and step frame-by-frame to adjust.</p>
+      <p><b>TO</b> take-off into the bound · <b>BFC</b> back foot lands · <b>FFC</b> front foot lands · <b>BR</b> ball release. Choose <i>Auto-detect</i> or <i>I'll mark them</i> before analysing. Either way, step frame-by-frame on the review screen and use the <i>Mark … here</i> buttons to set each one exactly.</p>
       <h3>Reading the results</h3>
       <ul>
         <li><b>Front knee at release</b> — a straighter, braced front leg is one of the most consistent links with pace.</li>
@@ -699,6 +761,63 @@ function viewGuide() {
         <li><b>What drives pace?</b> — enter speed-gun readings and the app shows which measures move with ball speed for each bowler.</li>
       </ul>
     </div>`;
+}
+
+// ---------- reference library ----------
+let refView = 'side';
+async function viewReference(actionKey) {
+  if (!R.ACTIONS[actionKey]) actionKey = 'side-on';
+  setTitle('Library'); setNav('reference');
+  const Aon = R.ACTIONS[actionKey];
+  const refs = (await DB.all('deliveries')).filter(d => d.ref);
+  const players = Object.fromEntries((await DB.listPlayers()).map(p => [p.id, p]));
+  view.innerHTML = `
+    <div class="tabs">${Object.entries(R.ACTIONS).map(([k, a]) => `<a class="tabbtn ${k === actionKey ? 'on' : ''} ${a.verdict === 'risk' ? 'riskt' : ''}" href="#reference/${k}">${a.title}</a>`).join('')}</div>
+    <div class="card tight">
+      <div class="seg" id="rv">${Object.entries(R.VIEWS).map(([k, v]) => `<button data-v="${k}">${v.label}</button>`).join('')}</div>
+      <div class="stage"><canvas id="rc" width="960" height="600"></canvas><div class="frame-tag" id="rphase"></div></div>
+      <div class="cue" id="rcue"></div>
+      <input type="range" id="rs" min="0" max="1000" value="0" class="full">
+      <div class="row between ctrls"><button class="btn sm" id="rplay">❚❚</button><button class="btn sm" id="rspd">¼×</button>${['bfc', 'ffc', 'br'].map(k => `<button class="btn sm" data-jump="${k}">${k.toUpperCase()}</button>`).join('')}</div>
+      <div class="readout" id="rro"></div>
+      <p class="small legend"><i style="background:#e34948"></i>bowling arm <i style="background:#2a78d6"></i>front leg <i style="background:#eda100"></i>back leg <i class="dash" style="border-color:#7fd1a8"></i>hip line <i class="dash" style="border-color:#f2c14e"></i>shoulder line</p>
+    </div>
+    <div class="note ${Aon.verdict === 'risk' ? 'risk' : 'tip'}">${Aon.verdict === 'risk' ? '⚠️' : '✅'} <b>${Aon.title}.</b> ${esc(Aon.summary)}</div>
+    <div class="card tight"><h4 class="m0">What to look for</h4>${[['bfc', 'Back foot contact'], ['ffc', 'Front foot contact'], ['br', 'Release'], ['ft', 'Follow-through']].map(([k, n]) => `<p class="small m0 look"><b>${n}:</b> ${Aon.cues[k].map(esc).join(' · ')}</p>`).join('')}
+      <p class="small muted">This is a simplified right-arm model to show body positions and timing — not a recording of a real bowler.</p></div>
+    <h4 class="section">Your reference clips</h4>
+    ${refs.length ? `<div class="list">${refs.map(d => `<a class="item" href="#delivery/${d.id}">${d.thumb ? `<img class="thumb" src="${d.thumb}" alt="">` : '<div class="thumb"></div>'}<div class="grow"><div class="name">${esc(players[d.playerId]?.name || '')}${d.label ? ' · ' + esc(d.label) : ''}</div><div class="muted small">${R.ACTIONS[d.ref.action]?.title || ''} · ${d.ref.view} view</div></div></a>`).join('')}</div>`
+      : `<div class="card small muted">None yet. Analyse a clip of a bowler with good technique (your own footage, from any angle), then tick <b>⭐ Use as a reference example</b> on its review screen.</div>`}`;
+  const cv = $('#rc'), ctx = cv.getContext('2d');
+  let t = 0, playing = true, alive = true, speed = 0.25, last = performance.now();
+  const rv = $('#rv');
+  const paintV = () => rv.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === refView));
+  rv.onclick = e => { if (e.target.dataset.v) { refView = e.target.dataset.v; paintV(); frame(); } }; paintV();
+  function frame() {
+    const info = R.renderModel(ctx, cv.width, cv.height, actionKey, refView, t);
+    $('#rphase').textContent = R.phaseAt(t);
+    const cue = R.nearestCue(actionKey, t);
+    $('#rcue').innerHTML = cue ? cue.lines.map(l => `<span>${esc(l)}</span>`).join('') : '';
+    const sep = info.sep;
+    $('#rro').innerHTML = `<div><span>${Math.round(info.pelvisYaw)}°</span>Hips open</div><div><span>${Math.round(info.shoulderYaw)}°</span>Shoulders open</div><div><span class="${Math.abs(sep) > 30 && t < R.KEY_TIMES.br ? 'bad' : ''}">${Math.round(sep)}°</span>Hip–shoulder gap</div><div><span>${Math.round(info.frontKnee)}°</span>Front knee</div>`;
+  }
+  function loop(now) {
+    if (!alive) return;
+    if (playing) {
+      t += (now - last) / 1000 * speed;
+      if (t > R.DURATION + 0.25) t = 0;
+      $('#rs').value = Math.min(1, t / R.DURATION) * 1000;
+      frame();
+    }
+    last = now; requestAnimationFrame(loop);
+  }
+  $('#rs').oninput = e => { playing = false; $('#rplay').textContent = '▶︎'; t = e.target.value / 1000 * R.DURATION; frame(); };
+  $('#rplay').onclick = () => { playing = !playing; $('#rplay').textContent = playing ? '❚❚' : '▶︎'; };
+  const SP = [[0.25, '¼×'], [0.5, '½×'], [1, '1×'], [0.1, '⅒×']]; let si = 0;
+  $('#rspd').onclick = () => { si = (si + 1) % SP.length; speed = SP[si][0]; $('#rspd').textContent = SP[si][1]; };
+  view.querySelectorAll('[data-jump]').forEach(b => b.onclick = () => { playing = false; $('#rplay').textContent = '▶︎'; t = R.KEY_TIMES[b.dataset.jump]; $('#rs').value = t / R.DURATION * 1000; frame(); });
+  onLeave(() => { alive = false; });
+  frame(); requestAnimationFrame(loop);
 }
 
 // ---------- boot ----------
