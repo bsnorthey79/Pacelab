@@ -500,14 +500,3 @@ export function lightFor(key, v, targets = DEFAULT_TARGETS, history = []) {
   const z = (v - mean) / sd * (def.pace === 'higher' ? 1 : -1);
   return { light: z >= 0 ? 'green' : z >= -1 ? 'amber' : 'red', basis: 'personal', why: 'Compared with this bowler’s own average.' };
 }
-
-// Rough action type from BFC alignment estimates (single camera — indicative only).
-export function actionType(m) {
-  if (m.sh_align_bfc == null || m.hip_align_bfc == null) return null;
-  const sep = Math.abs(m.hip_align_bfc - m.sh_align_bfc);
-  if ((m.counter_rot != null && m.counter_rot > 30) || sep > 30) return 'mixed';
-  const avg = (m.sh_align_bfc + m.hip_align_bfc) / 2;
-  if (avg < 30) return 'side-on';
-  if (avg > 60) return 'front-on';
-  return 'semi-open';
-}

@@ -1,8 +1,8 @@
 // PaceLab service worker — cache-first so the app works offline at the nets.
-const VERSION = 'pacelab-v5';
+const VERSION = 'pacelab-v6';
 const CORE = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
-  'js/app.js', 'js/analysis.js', 'js/db.js', 'js/pose.js', 'js/charts.js', 'js/reference.js',
+  'js/app.js', 'js/analysis.js', 'js/db.js', 'js/pose.js', 'js/charts.js',
   'icons/icon-192.png', 'icons/icon-512.png',
   'mediapipe/pose.js', 'mediapipe/pose_web.binarypb', 'mediapipe/pose_solution_packed_assets_loader.js',
   'mediapipe/pose_solution_packed_assets.data', 'mediapipe/pose_solution_simd_wasm_bin.js',

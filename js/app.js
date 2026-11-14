@@ -3,7 +3,6 @@ import * as DB from './db.js';
 import * as A from './analysis.js';
 import * as P from './pose.js';
 import { progressChart, scatterChart } from './charts.js';
-import * as R from './reference.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const view = $('#view');
@@ -92,7 +91,6 @@ async function route() {
     else if (name === 'delivery') await viewDelivery(id);
     else if (name === 'settings') await viewSettings();
     else if (name === 'guide') viewGuide();
-    else if (name === 'reference') await viewReference(id);
     else location.hash = 'players';
   } catch (e) {
     console.error(e);
@@ -507,9 +505,6 @@ async function viewDelivery(id) {
       <label>Coach notes<textarea id="cm" rows="2">${esc(d.comments || '')}</textarea></label>
     </div>
     <div id="score"></div>
-    <div class="card form reftag"><label class="check"><input type="checkbox" id="isref" ${d.ref ? 'checked' : ''}> ⭐ Use as a reference example <span class="hint">Shows this clip in the Library as an example of good technique.</span></label>
-      <div class="row gap" id="refopts" ${d.ref ? '' : 'hidden'}><label class="grow">Action<select id="refact">${Object.entries(R.ACTIONS).map(([k, a]) => `<option value="${k}" ${d.ref?.action === k ? 'selected' : ''}>${a.title}</option>`).join('')}</select></label>
-      <label class="grow">Filmed from<select id="refview">${['side', 'front', 'behind'].map(v => `<option value="${v}" ${d.ref?.view === v ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select></label></div></div>
     <div class="row between"><h4 class="section">Measurements</h4>
       <select id="cmp" class="sm"><option value="">Compare: player average</option>${others.map(o => `<option value="${o.id}">vs ${new Date(o.date + 'T12:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}${o.label ? ' ' + esc(o.label) : ''}${o.metrics?.speed != null ? ' · ' + metricDisplay('speed', o.metrics.speed) : ''}</option>`).join('')}</select></div>
     <div id="mx"></div>
@@ -649,11 +644,9 @@ async function viewDelivery(id) {
     for (const m of A.METRICS) { const l = A.lightFor(m.key, d.metrics[m.key], targets, others.map(o => o.metrics?.[m.key])); if (l) lights[m.key] = l; }
     const cardKeys = ['speed', 'fk_knee_br', 'fk_change', 'trunk_flex', 'sep_max', 'counter_rot', 'stride_pct', 'approach', 'arm_vel', 'seq_ok'].filter(k => lights[k]);
     const count = c => Object.values(lights).filter(l => l.light === c).length;
-    const act = A.actionType(d.metrics);
     $('#score').innerHTML = (cardKeys.length ? `<div class="card tight"><div class="row between"><h4 class="m0">Scorecard</h4><span class="small tl-count"><span class="tl tl-green">●</span> ${count('green')} <span class="tl tl-amber">▲</span> ${count('amber')} <span class="tl tl-red">■</span> ${count('red')}</span></div>
       <div class="tiles">${cardKeys.map(k => { const m = A.METRIC_BY_KEY[k], l = lights[k]; return `<div class="tile tile-${l.light}"><span class="tv">${metricDisplay(k, d.metrics[k])}<small> ${m.bool ? '' : metricUnit(k)}</small></span><span class="tn">${m.label}</span><span class="ts">${LIGHT_SHAPE[l.light]} ${A.LIGHT_LABEL[l.light]}${l.basis === 'personal' ? ' · vs own avg' : ''}</span></div>`; }).join('')}</div>
-      <p class="small muted m0">● Good ▲ Work on ■ Focus. Targets are coaching guides — change them in Settings.</p></div>` : '')
-      + (act ? `<a class="note link-note" href="#reference/${act}">Likely action type: <b>${R.ACTIONS[act].title}</b> (estimate) — see the model ›</a>` : '');
+      <p class="small muted m0">● Good ▲ Work on ■ Focus. Targets are coaching guides — change them in Settings.</p></div>` : '');
     const groups = [...new Set(A.METRICS.map(m => m.group))];
     $('#mx').innerHTML = groups.map(g => {
       const ms = A.METRICS.filter(m => m.group === g && !(m.key === 'stride_cm' && d.metrics.stride_cm == null));
@@ -678,8 +671,6 @@ async function viewDelivery(id) {
     await DB.put('deliveries', d); renderMetrics();
   };
   ['#spd', '#dt', '#lbl', '#cm'].forEach(sel => $(sel).onchange = saveField);
-  const saveRef = async () => { const on = $('#isref').checked; $('#refopts').hidden = !on; d.ref = on ? { action: $('#refact').value, view: $('#refview').value } : null; await DB.put('deliveries', d); };
-  ['#isref', '#refact', '#refview'].forEach(sel => $(sel).onchange = saveRef);
   $('#deld').onclick = async () => { if (await confirmBox('Delete this delivery?', 'The video, tracking data and measurements will be removed.')) { await DB.deleteDelivery(id); toast('Deleted'); location.hash = 'player/' + d.playerId; } };
   renderMetrics();
   await draw();
@@ -761,63 +752,6 @@ function viewGuide() {
         <li><b>What drives pace?</b> — enter speed-gun readings and the app shows which measures move with ball speed for each bowler.</li>
       </ul>
     </div>`;
-}
-
-// ---------- reference library ----------
-let refView = 'side';
-async function viewReference(actionKey) {
-  if (!R.ACTIONS[actionKey]) actionKey = 'side-on';
-  setTitle('Library'); setNav('reference');
-  const Aon = R.ACTIONS[actionKey];
-  const refs = (await DB.all('deliveries')).filter(d => d.ref);
-  const players = Object.fromEntries((await DB.listPlayers()).map(p => [p.id, p]));
-  view.innerHTML = `
-    <div class="tabs">${Object.entries(R.ACTIONS).map(([k, a]) => `<a class="tabbtn ${k === actionKey ? 'on' : ''} ${a.verdict === 'risk' ? 'riskt' : ''}" href="#reference/${k}">${a.title}</a>`).join('')}</div>
-    <div class="card tight">
-      <div class="seg" id="rv">${Object.entries(R.VIEWS).map(([k, v]) => `<button data-v="${k}">${v.label}</button>`).join('')}</div>
-      <div class="stage"><canvas id="rc" width="960" height="600"></canvas><div class="frame-tag" id="rphase"></div></div>
-      <div class="cue" id="rcue"></div>
-      <input type="range" id="rs" min="0" max="1000" value="0" class="full">
-      <div class="row between ctrls"><button class="btn sm" id="rplay">❚❚</button><button class="btn sm" id="rspd">¼×</button>${['bfc', 'ffc', 'br'].map(k => `<button class="btn sm" data-jump="${k}">${k.toUpperCase()}</button>`).join('')}</div>
-      <div class="readout" id="rro"></div>
-      <p class="small legend"><i style="background:#e34948"></i>bowling arm <i style="background:#2a78d6"></i>front leg <i style="background:#eda100"></i>back leg <i class="dash" style="border-color:#7fd1a8"></i>hip line <i class="dash" style="border-color:#f2c14e"></i>shoulder line</p>
-    </div>
-    <div class="note ${Aon.verdict === 'risk' ? 'risk' : 'tip'}">${Aon.verdict === 'risk' ? '⚠️' : '✅'} <b>${Aon.title}.</b> ${esc(Aon.summary)}</div>
-    <div class="card tight"><h4 class="m0">What to look for</h4>${[['bfc', 'Back foot contact'], ['ffc', 'Front foot contact'], ['br', 'Release'], ['ft', 'Follow-through']].map(([k, n]) => `<p class="small m0 look"><b>${n}:</b> ${Aon.cues[k].map(esc).join(' · ')}</p>`).join('')}
-      <p class="small muted">This is a simplified right-arm model to show body positions and timing — not a recording of a real bowler.</p></div>
-    <h4 class="section">Your reference clips</h4>
-    ${refs.length ? `<div class="list">${refs.map(d => `<a class="item" href="#delivery/${d.id}">${d.thumb ? `<img class="thumb" src="${d.thumb}" alt="">` : '<div class="thumb"></div>'}<div class="grow"><div class="name">${esc(players[d.playerId]?.name || '')}${d.label ? ' · ' + esc(d.label) : ''}</div><div class="muted small">${R.ACTIONS[d.ref.action]?.title || ''} · ${d.ref.view} view</div></div></a>`).join('')}</div>`
-      : `<div class="card small muted">None yet. Analyse a clip of a bowler with good technique (your own footage, from any angle), then tick <b>⭐ Use as a reference example</b> on its review screen.</div>`}`;
-  const cv = $('#rc'), ctx = cv.getContext('2d');
-  let t = 0, playing = true, alive = true, speed = 0.25, last = performance.now();
-  const rv = $('#rv');
-  const paintV = () => rv.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === refView));
-  rv.onclick = e => { if (e.target.dataset.v) { refView = e.target.dataset.v; paintV(); frame(); } }; paintV();
-  function frame() {
-    const info = R.renderModel(ctx, cv.width, cv.height, actionKey, refView, t);
-    $('#rphase').textContent = R.phaseAt(t);
-    const cue = R.nearestCue(actionKey, t);
-    $('#rcue').innerHTML = cue ? cue.lines.map(l => `<span>${esc(l)}</span>`).join('') : '';
-    const sep = info.sep;
-    $('#rro').innerHTML = `<div><span>${Math.round(info.pelvisYaw)}°</span>Hips open</div><div><span>${Math.round(info.shoulderYaw)}°</span>Shoulders open</div><div><span class="${Math.abs(sep) > 30 && t < R.KEY_TIMES.br ? 'bad' : ''}">${Math.round(sep)}°</span>Hip–shoulder gap</div><div><span>${Math.round(info.frontKnee)}°</span>Front knee</div>`;
-  }
-  function loop(now) {
-    if (!alive) return;
-    if (playing) {
-      t += (now - last) / 1000 * speed;
-      if (t > R.DURATION + 0.25) t = 0;
-      $('#rs').value = Math.min(1, t / R.DURATION) * 1000;
-      frame();
-    }
-    last = now; requestAnimationFrame(loop);
-  }
-  $('#rs').oninput = e => { playing = false; $('#rplay').textContent = '▶︎'; t = e.target.value / 1000 * R.DURATION; frame(); };
-  $('#rplay').onclick = () => { playing = !playing; $('#rplay').textContent = playing ? '❚❚' : '▶︎'; };
-  const SP = [[0.25, '¼×'], [0.5, '½×'], [1, '1×'], [0.1, '⅒×']]; let si = 0;
-  $('#rspd').onclick = () => { si = (si + 1) % SP.length; speed = SP[si][0]; $('#rspd').textContent = SP[si][1]; };
-  view.querySelectorAll('[data-jump]').forEach(b => b.onclick = () => { playing = false; $('#rplay').textContent = '▶︎'; t = R.KEY_TIMES[b.dataset.jump]; $('#rs').value = t / R.DURATION * 1000; frame(); });
-  onLeave(() => { alive = false; });
-  frame(); requestAnimationFrame(loop);
 }
 
 // ---------- boot ----------
