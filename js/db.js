@@ -1,7 +1,7 @@
 // PaceLab — IndexedDB storage (all data stays on the phone).
 const DB_NAME = 'pacelab';
-const DB_VER = 1;
-const STORES = ['players', 'deliveries', 'frames', 'videos', 'snaps'];
+const DB_VER = 2;
+const STORES = ['players', 'deliveries', 'frames', 'videos', 'snaps', 'strips'];
 let dbp = null;
 
 function open() {
@@ -38,7 +38,7 @@ export async function deliveriesFor(playerId) {
   return list.sort((a, b) => a.date.localeCompare(b.date) || a.created - b.created);
 }
 export async function deleteDelivery(id) {
-  await Promise.all(['deliveries', 'frames', 'videos', 'snaps'].map(s => del(s, id)));
+  await Promise.all(['deliveries', 'frames', 'videos', 'snaps', 'strips'].map(s => del(s, id)));
 }
 export async function deletePlayer(id) {
   for (const d of await deliveriesFor(id)) await deleteDelivery(d.id);

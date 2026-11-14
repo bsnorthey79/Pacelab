@@ -316,8 +316,15 @@ async function stepTrim(p, blob, meta) {
   const scrub = $('#scrub');
   const upd = () => { $('#tcur').textContent = v.currentTime.toFixed(2) + ' s'; $('#trimtxt').textContent = `Clip: ${start.toFixed(2)} s → ${end.toFixed(2)} s (${(end - start).toFixed(2)} s)`; };
   $('#tdur').textContent = 'of ' + info.duration.toFixed(2) + ' s';
-  scrub.oninput = async () => { v.pause(); await P.seek(v, scrub.value / 1000 * info.duration); upd(); };
-  v.ontimeupdate = () => { scrub.value = v.currentTime / info.duration * 1000; upd(); };
+  let seeking = false, want = null;
+  scrub.oninput = async () => {
+    v.pause(); want = scrub.value / 1000 * info.duration;
+    if (seeking) return;
+    seeking = true;
+    while (want != null) { const t = want; want = null; await P.seek(v, t); upd(); }
+    seeking = false;
+  };
+  v.ontimeupdate = () => { if (seeking) return; scrub.value = v.currentTime / info.duration * 1000; upd(); };
   $('#st').onclick = () => { start = v.currentTime; if (end <= start) end = info.duration; upd(); };
   $('#en').onclick = () => { end = v.currentTime; if (end <= start) start = 0; upd(); };
   $('#play').onclick = () => { if (v.paused) { v.playbackRate = 0.25; v.play(); } else v.pause(); };
@@ -392,6 +399,7 @@ async function stepAnalyse(p, video, blob, opt) {
   };
   await DB.put('frames', DB.packFrames(id, res.frames));
   await DB.put('snaps', { id, imgs: Object.fromEntries(Object.entries(imgs).map(([k, v]) => [k, v.blob])), frames: Object.fromEntries(Object.entries(imgs).map(([k, v]) => [k, v.frame])) });
+  await DB.put('strips', { id, imgs: res.frames.map(f => f.img) });
   if (settings.keepVideo) await DB.put('videos', { id, blob });
   await DB.put('deliveries', d);
   DB.requestPersistence();
@@ -461,7 +469,7 @@ async function viewDelivery(id) {
       <div class="stage"><canvas id="cv" width="${W}" height="${H}"></canvas><div class="frame-tag" id="ftag"></div></div>
       <div class="timeline" id="tl"></div>
       <input type="range" id="sl" min="0" max="${s.n - 1}" value="${d.events.br ?? 0}" class="full">
-      <div class="row between ctrls"><button class="btn sm" data-step="-10">⏪</button><button class="btn sm" data-step="-1">◀ 1</button><button class="btn sm" id="pl">▶︎</button><button class="btn sm" data-step="1">1 ▶</button><button class="btn sm" data-step="10">⏩</button></div>
+      <div class="row between ctrls"><button class="btn sm" data-step="-10">⏪</button><button class="btn sm" data-step="-1">◀ 1</button><button class="btn sm" id="pl">▶︎</button><button class="btn sm" data-step="1">1 ▶</button><button class="btn sm" data-step="10">⏩</button><button class="btn sm" id="spdbtn">1×</button></div>
       <div class="evchips" id="evc"></div>
       <div class="readout" id="ro"></div>
       <details class="adjust"><summary>Adjust key moments</summary>
@@ -485,12 +493,44 @@ async function viewDelivery(id) {
     <button class="btn danger full" id="deld">Delete delivery</button>`;
 
   const cv = $('#cv'), ctx = cv.getContext('2d');
-  let video = null;
-  if (vrec) { video = document.createElement('video'); try { await P.loadVideo(video, vrec.blob); } catch (e) { video = null; } }
+  // Frame strip: one small JPEG per analysed frame → instant scrubbing and smooth playback.
+  let strip = (await DB.get('strips', id))?.imgs || null;
+  // Older deliveries: build the strip once from the stored video, in the background.
+  async function buildStrip() {
+    const prep = document.createElement('div');
+    prep.className = 'prep'; prep.innerHTML = '<div>Preparing smooth playback…</div><div class="progress"><i></i></div>';
+    $('.stage').appendChild(prep);
+    const video = document.createElement('video');
+    try {
+      await P.loadVideo(video, vrec.blob);
+      const imgs = await P.makeStrip(video, d.mts, f => { prep.querySelector('i').style.width = (f * 100).toFixed(0) + '%'; }, () => !alive);
+      await DB.put('strips', { id, imgs });
+      if (alive) { strip = imgs; draw(); }
+    } catch (e) { /* keep skeleton-only view */ }
+    if (video._url) URL.revokeObjectURL(video._url);
+    prep.remove();
+  }
   const snapImgs = {};
   if (snaps) for (const k in snaps.imgs) { const im = new Image(); im.src = URL.createObjectURL(snaps.imgs[k]); snapImgs[k] = im; }
-  let cur = +$('#sl').value, playing = false, drawToken = 0;
+  let cur = +$('#sl').value, playing = false, drawToken = 0, alive = true;
 
+  // Small decoded-frame cache with read-ahead.
+  const cache = new Map(), loading = new Map(), CACHE_MAX = 120;
+  function bitmap(i) {
+    if (!strip || !strip[i]) return Promise.resolve(null);
+    if (cache.has(i)) return Promise.resolve(cache.get(i));
+    if (loading.has(i)) return loading.get(i);
+    const pr = createImageBitmap(strip[i]).then(bm => {
+      loading.delete(i);
+      if (!alive) { bm.close(); return null; }
+      cache.set(i, bm);
+      if (cache.size > CACHE_MAX) { for (const k of cache.keys()) { if (Math.abs(k - cur) > 40) { cache.get(k).close(); cache.delete(k); if (cache.size <= CACHE_MAX) break; } } }
+      return bm;
+    }).catch(() => { loading.delete(i); return null; });
+    loading.set(i, pr);
+    return pr;
+  }
+  const prefetch = (from, dir = 1) => { for (let k = 1; k <= 12; k++) { const j = from + k * dir; if (j >= 0 && j < s.n) bitmap(j); } };
   const evColors = { takeoff: '#9085e9', bfc: COL.back, ffc: COL.front, br: COL.arm };
   function renderTimeline() {
     $('#tl').innerHTML = A.EVENTS.filter(e => d.events[e.key] != null).map(e => `<i style="left:${(d.events[e.key] / Math.max(1, s.n - 1) * 100).toFixed(2)}%;background:${evColors[e.key]}" title="${e.label}"></i>`).join('') + `<b style="left:${(cur / Math.max(1, s.n - 1) * 100).toFixed(2)}%"></b>`;
@@ -502,30 +542,49 @@ async function viewDelivery(id) {
   }
   async function draw() {
     const token = ++drawToken;
-    const f = frames[cur];
-    const snapKey = snaps && Object.keys(snaps.frames || {}).find(k => snaps.frames[k] === cur && snapImgs[k]);
-    if (video) { await P.seek(video, d.mts[cur]); if (token !== drawToken) return; ctx.drawImage(video, 0, 0, W, H); }
+    const i = cur;
+    const bm = await bitmap(i);
+    if (token !== drawToken || !alive) return;
+    const f = frames[i];
+    const snapKey = !bm && snaps && Object.keys(snaps.frames || {}).find(k => snaps.frames[k] === i && snapImgs[k]);
+    if (bm) ctx.drawImage(bm, 0, 0, W, H);
     else if (snapKey && snapImgs[snapKey].complete) ctx.drawImage(snapImgs[snapKey], 0, 0, W, H);
     else { ctx.fillStyle = '#16211b'; ctx.fillRect(0, 0, W, H); }
     if (f.lm) {
-      const ro = A.frameReadout(s, cur, p.arm);
+      const ro = A.frameReadout(s, i, p.arm);
       const sd = A.sides(p.arm);
       drawSkeleton(ctx, f.lm, p.arm, W, { angles: [[sd.frontKnee, ro.frontKnee], [sd.backKnee, ro.backKnee], [sd.el, ro.elbow]] });
-      $('#ro').innerHTML = `<div><span>${Math.round(ro.frontKnee)}°</span>Front knee</div><div><span>${Math.round(ro.backKnee)}°</span>Back knee</div><div><span>${Math.round(ro.elbow)}°</span>Elbow</div><div><span>${Math.round(ro.trunk)}°</span>Trunk lean</div>`;
-    } else $('#ro').innerHTML = '<div class="muted small">No body detected in this frame</div>';
+      if (!playing) $('#ro').innerHTML = `<div><span>${Math.round(ro.frontKnee)}°</span>Front knee</div><div><span>${Math.round(ro.backKnee)}°</span>Back knee</div><div><span>${Math.round(ro.elbow)}°</span>Elbow</div><div><span>${Math.round(ro.trunk)}°</span>Trunk lean</div>`;
+    } else if (!playing) $('#ro').innerHTML = '<div class="muted small">No body detected in this frame</div>';
     const ffcT = d.events.ffc != null ? s.t[d.events.ffc] : null;
-    $('#ftag').textContent = `frame ${cur + 1}/${s.n}` + (ffcT != null ? ` · ${((s.t[cur] - ffcT) * 1000).toFixed(0)} ms from FFC` : '');
+    $('#ftag').textContent = `frame ${i + 1}/${s.n}` + (ffcT != null ? ` · ${((s.t[i] - ffcT) * 1000).toFixed(0)} ms from FFC` : '');
     renderTimeline();
   }
-  const go = i => { cur = Math.max(0, Math.min(s.n - 1, i)); $('#sl').value = cur; draw(); };
+  const go = (i, dir = 1) => { cur = Math.max(0, Math.min(s.n - 1, i)); $('#sl').value = cur; prefetch(cur, dir); draw(); };
   $('#sl').oninput = e => go(+e.target.value);
-  view.querySelectorAll('[data-step]').forEach(b => b.onclick = () => go(cur + +b.dataset.step));
+  view.querySelectorAll('[data-step]').forEach(b => b.onclick = () => go(cur + +b.dataset.step, Math.sign(+b.dataset.step)));
   $('#evc').onclick = e => { const b = e.target.closest('[data-go]'); if (b && d.events[b.dataset.go] != null) go(d.events[b.dataset.go]); };
+  // Playback: frames shown at a steady rate; waits for a frame to decode rather than piling up.
+  const SPEEDS = [{ l: '¼×', fps: 8 }, { l: '½×', fps: 15 }, { l: '1×', fps: 30 }];
+  let spd = 2;
+  $('#spdbtn').onclick = () => { spd = (spd + 1) % SPEEDS.length; $('#spdbtn').textContent = SPEEDS[spd].l; };
+  $('#spdbtn').textContent = SPEEDS[spd].l;
+  const stopPlay = () => { playing = false; $('#pl').textContent = '▶︎'; draw(); };
   $('#pl').onclick = async () => {
-    playing = !playing; $('#pl').textContent = playing ? '❚❚' : '▶︎';
-    while (playing) { if (cur >= s.n - 1) cur = -1; go(cur + 1); await new Promise(r => setTimeout(r, video ? 90 : 60)); }
+    if (playing) return stopPlay();
+    playing = true; $('#pl').textContent = '❚❚';
+    if (cur >= s.n - 1) cur = 0;
+    let last = 0;
+    while (playing && alive) {
+      const now = await new Promise(r => requestAnimationFrame(r));
+      if (now - last < 1000 / SPEEDS[spd].fps) continue;
+      last = now;
+      if (cur >= s.n - 1) { stopPlay(); break; }
+      cur++; $('#sl').value = cur; prefetch(cur);
+      await draw();
+    }
   };
-  onLeave(() => { playing = false; if (video?._url) URL.revokeObjectURL(video._url); });
+  onLeave(() => { playing = false; alive = false; for (const bm of cache.values()) bm.close(); cache.clear(); Object.values(snapImgs).forEach(im => URL.revokeObjectURL(im.src)); });
   view.querySelectorAll('[data-set]').forEach(b => b.onclick = async () => {
     d.events[b.dataset.set] = cur; await recompute(); toast(A.EVENTS.find(e => e.key === b.dataset.set).label + ' set');
   });
@@ -576,6 +635,7 @@ async function viewDelivery(id) {
   $('#deld').onclick = async () => { if (await confirmBox('Delete this delivery?', 'The video, tracking data and measurements will be removed.')) { await DB.deleteDelivery(id); toast('Deleted'); location.hash = 'player/' + d.playerId; } };
   renderMetrics();
   await draw();
+  if (!strip && vrec) buildStrip();
 }
 
 // ---------- settings ----------

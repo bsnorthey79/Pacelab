@@ -150,3 +150,5 @@ input[type=range] { accent-color: var(--brand2); height: 32px; }
 .toast.show { opacity: 1; transform: translateX(-50%); }
 .guide li { margin-bottom: 8px; }
 .guide h3 { color: var(--brand2); margin-bottom: 6px; }
+.prep { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px; padding: 0 20%; background: rgba(0,0,0,.6); color: #fff; font-size: .9rem; text-align: center; border-radius: 10px; }
+.ctrls .btn#spdbtn { flex: .8; }

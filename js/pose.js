@@ -112,6 +112,7 @@ export async function analyseVideo(video, { start, end, fileFps, timeScale = 1, 
         r.poseWorldLandmarks.forEach((p, k) => { f.wl[k * 3] = p.x; f.wl[k * 3 + 1] = p.y; f.wl[k * 3 + 2] = p.z; });
       }
     }
+    f.img = await toJpeg(canvas);
     frames.push(f);
     onProgress && onProgress((i + 1) / total, f, canvas);
   }
@@ -123,4 +124,29 @@ export async function snapshot(video, mt, maxSide = 720) {
   const c = document.createElement('canvas');
   drawFrame(video, c, maxSide);
   return new Promise(res => c.toBlob(res, 'image/jpeg', 0.8));
+}
+
+// Small JPEG of a frame for smooth review playback (no video seeking needed).
+const STRIP_MAX = 640;
+let stripCanvas = null;
+export function toJpeg(src) {
+  stripCanvas ||= document.createElement('canvas');
+  const sc = Math.min(1, STRIP_MAX / Math.max(src.width, src.height));
+  const w = Math.round(src.width * sc), h = Math.round(src.height * sc);
+  if (stripCanvas.width !== w || stripCanvas.height !== h) { stripCanvas.width = w; stripCanvas.height = h; }
+  stripCanvas.getContext('2d').drawImage(src, 0, 0, w, h);
+  return new Promise(res => stripCanvas.toBlob(res, 'image/jpeg', 0.75));
+}
+// Build the frame strip from a stored video (for deliveries analysed before this existed).
+export async function makeStrip(video, mts, onProgress, isCancelled) {
+  const c = document.createElement('canvas');
+  const imgs = [];
+  for (let i = 0; i < mts.length; i++) {
+    if (isCancelled && isCancelled()) throw new Error('cancelled');
+    await seek(video, mts[i]);
+    drawFrame(video, c, STRIP_MAX);
+    imgs.push(await toJpeg(c));
+    onProgress && onProgress((i + 1) / mts.length);
+  }
+  return imgs;
 }
