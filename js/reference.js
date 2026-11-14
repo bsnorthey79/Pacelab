@@ -97,7 +97,8 @@ const pelvisX = track({ to: 0, apex: 0.8, bfc: 1.55, ffc: 2.35, br: 2.62, ft: 3.
 const pelvisY = track({ to: 0.95, apex: 1.12, bfc: 0.93, ffc: 0.88, br: 0.93, ft: 0.8, end: 0.86 });
 const trunkFlex = track({ to: 5, apex: 0, bfc: -8, ffc: 2, br: 35, ft: 70, end: 45 });
 const armR = track({ to: -150, apex: -120, bfc: -160, ffc: -95, br: 5, ft: 140, end: 200 });
-const armL = track({ to: 30, apex: 20, bfc: 75, ffc: 85, br: 160, ft: 185, end: 195 });
+const armL = track({ to: 30, apex: 10, bfc: 40, ffc: 80, br: 170, ft: 200, end: 195 });
+const armCross = track([[0, 0], [T.br, 0], [T.ft, -0.45], [T.end, -0.6]]);
 // Feet: [x, y(ankle height), z]
 const PL = 0.08;
 const frontFoot = track([[0, [0.15, PL, BOWLER_Z - 0.05]], [0.06, [0.4, 0.3, BOWLER_Z]], [T.apex, [1.05, 0.5, BOWLER_Z]], [T.bfc, [1.85, 0.45, BOWLER_Z]], [0.38, [2.35, 0.3, BOWLER_Z]], ...hold(T.ffc, T.ft + 0.02, [2.75, PL, BOWLER_Z - 0.05]), [0.9, [3.3, 0.25, BOWLER_Z]], [T.end, [3.75, PL, BOWLER_Z]]]);
@@ -143,16 +144,18 @@ export function poseAt(actionKey, t) {
   const S = add(P, mul(tdir, 0.52));
   J[11] = add(S, mul(ls, 0.19)); J[12] = add(S, mul(ls, -0.19));
   J[0] = add(add(S, mul(tdir, 0.24)), mul(fs, 0.09));
-  // Arms rotate in the plane of trunk-up and the shoulder line (over-the-top action).
-  const armPos = (sh, ang, side) => {
-    const dir = norm(add(mul(tdir, Math.cos(rad(ang))), mul(ls, Math.sin(rad(ang)) * side)));
+  // Arms swing in a vertical plane along the line of the pitch (straight "windmill"), not around the chest.
+  // Angle: 0 = straight up, +90 = pointing at the batter, -90 = pointing back, ±180 = straight down.
+  const armPos = (sh, ang, crossZ) => {
+    const dir = norm([Math.sin(rad(ang)), Math.cos(rad(ang)), crossZ]);
     return { el: add(sh, mul(dir, 0.3)), wr: add(sh, mul(dir, 0.6)) };
   };
-  // Bowling (right) arm: angle 0 = vertical, + = toward the batter side of the shoulder line.
-  const r = armPos(J[12], armR(t), 1);
-  J[14] = add(r.el, mul(fs, -0.02)); J[16] = r.wr;
-  const l = armPos(J[11], armL(t), 1);
-  J[13] = add(l.el, mul(fs, 0.04)); J[15] = add(l.wr, mul(fs, 0.06));
+  // Bowling (right) arm: stays in line until release, then finishes across the body past the left hip.
+  const r = armPos(J[12], armR(t), armCross(t));
+  J[14] = r.el; J[16] = r.wr;
+  // Front (left) arm: reaches up toward the batter, then pulls straight down into the side.
+  const l = armPos(J[11], armL(t), 0);
+  J[13] = l.el; J[15] = l.wr;
   // Legs
   const ff = frontFoot(t), bf = backFoot(t);
   const pole = norm(add([1, 0, 0], mul(facing(py), 0.4)));

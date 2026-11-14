@@ -1,5 +1,5 @@
 // PaceLab service worker — cache-first so the app works offline at the nets.
-const VERSION = 'pacelab-v4';
+const VERSION = 'pacelab-v5';
 const CORE = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/analysis.js', 'js/db.js', 'js/pose.js', 'js/charts.js', 'js/reference.js',
