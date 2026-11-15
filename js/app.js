@@ -15,12 +15,21 @@ const fmtDate = d => new Date(d + 'T12:00:00').toLocaleDateString(undefined, { w
 const SETTINGS_KEY = 'pacelab.settings';
 const settings = Object.assign({ unit: 'kmh', complexity: 1, keepVideo: true, autoDetect: true }, (() => { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch (e) { return {}; } })());
 const TARGETS_KEY = 'pacelab.targets';
-function loadTargets() {
+function readTargetEdits() {
   let st = {}; try { st = JSON.parse(localStorage.getItem(TARGETS_KEY)) || {}; } catch (e) { /* ignore */ }
-  const out = {}; for (const k in A.DEFAULT_TARGETS) out[k] = { ...A.DEFAULT_TARGETS[k], ...(st[k] || {}) };
+  // Edits saved before age bands existed were for senior bowlers.
+  if (!A.BANDS.some(b => st[b.key]) && Object.keys(st).length) st = { senior: st };
+  return st;
+}
+function loadTargets() {
+  const st = readTargetEdits(), out = {};
+  for (const b of A.BANDS) { const t = A.defaultTargets(b.key); for (const k in t) Object.assign(t[k], (st[b.key] || {})[k] || {}); out[b.key] = t; }
   return out;
 }
-let targets = loadTargets();
+let targetsByBand = loadTargets();
+function ageAt(dob, dateISO) { if (!dob) return null; const d = new Date(dob + 'T12:00'), n = new Date((dateISO || new Date().toISOString().slice(0, 10)) + 'T12:00'); let a = n.getFullYear() - d.getFullYear(); if (n < new Date(n.getFullYear(), d.getMonth(), d.getDate(), 12)) a--; return a; }
+const bandOf = (p, dateISO) => A.bandForAge(ageAt(p?.dob, dateISO));
+const targetsOf = (p, dateISO) => targetsByBand[bandOf(p, dateISO).key];
 const LIGHT_SHAPE = { green: '●', amber: '▲', red: '■' };
 const lightDot = l => (l ? `<span class="tl tl-${l.light}" title="${A.LIGHT_LABEL[l.light]}">${LIGHT_SHAPE[l.light]}</span>` : '');
 const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { /* ignore */ } };
@@ -50,8 +59,8 @@ function metricValueForChart(key, v) {
   return v;
 }
 
-function lightsFor(d, others) {
-  const lights = {};
+function lightsFor(d, others, p) {
+  const lights = {}, targets = targetsOf(p, d.date);
   for (const m of A.METRICS) { const l = A.lightFor(m.key, d.metrics?.[m.key], targets, others.map(o => o.metrics?.[m.key])); if (l) lights[m.key] = l; }
   return lights;
 }
@@ -151,7 +160,7 @@ async function viewEditPlayer(id) {
       <label>Bowling arm</label>
       <div class="seg" id="arm"><button type="button" data-v="R">Right-arm</button><button type="button" data-v="L">Left-arm</button></div>
       <label>Height (cm)<input name="heightCm" type="number" inputmode="decimal" min="100" max="230" value="${esc(p.heightCm)}" placeholder="e.g. 178"><span class="hint">Needed for stride length in cm and approach speed.</span></label>
-      <label>Date of birth<input name="dob" type="date" value="${esc(p.dob)}"></label>
+      <label>Date of birth<input name="dob" type="date" value="${esc(p.dob)}"><span class="hint">Sets the age group for traffic-light targets and the ball cap.</span></label>
       <label>Notes<textarea name="notes" rows="3" placeholder="Goals, injuries, cues…">${esc(p.notes)}</textarea></label>
       <div class="row gap"><a class="btn" href="#${isNew ? 'players' : 'player/' + id}">Cancel</a><button class="btn primary grow">Save</button></div>
       ${isNew ? '' : '<button type="button" class="btn danger full" id="delp">Delete player</button>'}
@@ -190,7 +199,7 @@ async function viewPlayer(id) {
   view.innerHTML = `
     <div class="card">
       <div class="row"><div class="avatar lg">${esc(initials(p.name))}</div>
-      <div class="grow"><h2 class="m0">${esc(p.name)}</h2><div class="muted small">${p.arm === 'L' ? 'Left-arm' : 'Right-arm'}${p.heightCm ? ' · ' + p.heightCm + ' cm' : ' · <a href="#edit-player/' + id + '">add height</a>'}${a != null ? ' · age ' + a : ''}</div></div>
+      <div class="grow"><h2 class="m0">${esc(p.name)}</h2><div class="muted small">${p.arm === 'L' ? 'Left-arm' : 'Right-arm'}${p.heightCm ? ' · ' + p.heightCm + ' cm' : ' · <a href="#edit-player/' + id + '">add height</a>'}${a != null ? ' · age ' + a : ''} · ${bandOf(p, today()).label} targets</div></div>
       <a class="btn sm" href="#edit-player/${id}">Edit</a></div>
       ${p.notes ? `<p class="small notes">${esc(p.notes)}</p>` : ''}
       <a class="btn primary full" href="#new/${id}">🎥 Analyse a new delivery</a>
@@ -211,7 +220,7 @@ async function viewPlayer(id) {
     const lastDate = ds.length ? ds[ds.length - 1].date : null;
     const sess = ds.filter(d => d.date === lastDate);
     const tally = {};
-    for (const d of sess) for (const x of PR.drillsFor(lightsFor(d, ds.filter(o => o.id !== d.id)), d.metrics || {}, targets)) { const t = (tally[x.fault.id] ||= { fault: x.fault, n: 0, red: 0 }); t.n++; if (x.level === 'red') t.red++; }
+    for (const d of sess) for (const x of PR.drillsFor(lightsFor(d, ds.filter(o => o.id !== d.id), p), d.metrics || {}, targetsOf(p, d.date))) { const t = (tally[x.fault.id] ||= { fault: x.fault, n: 0, red: 0 }); t.n++; if (x.level === 'red') t.red++; }
     const sugg = Object.values(tally).filter(t => t.n >= sess.length / 2 && !prog.faults.includes(t.fault.id)).sort((x, y) => x.fault.id - y.fault.id);
     const full = prog.faults.length >= 2;
     body.innerHTML = `
@@ -268,7 +277,7 @@ async function viewPlayer(id) {
       const draw = () => {
         const def = A.METRIC_BY_KEY[progressMetric];
         const pts = ds.filter(d => d.metrics?.[progressMetric] != null).map(d => ({ id: d.id, date: d.date, value: metricValueForChart(progressMetric, d.metrics[progressMetric]), label: d.label }));
-        progressChart($('#pc'), pts, { unit: metricUnit(progressMetric), dp: def.unit === 's' ? 0 : def.dp, risk: def.risk ?? null, target: targets[progressMetric]?.type !== 'bool' ? targets[progressMetric] : null, onPick: p => (location.hash = 'delivery/' + p.id) });
+        progressChart($('#pc'), pts, { unit: metricUnit(progressMetric), dp: def.unit === 's' ? 0 : def.dp, risk: def.risk ?? null, target: targetsOf(p, today())[progressMetric]?.type !== 'bool' ? targetsOf(p, today())[progressMetric] : null, onPick: p => (location.hash = 'delivery/' + p.id) });
         $('#pdesc').textContent = def.desc + (def.pace ? ` Pace link: ${def.pace === 'higher' ? 'higher' : 'lower'} tends to be better.` : '');
         const dates = [...new Set(pts.map(p => p.date))];
         const sAvg = dt => { const v = pts.filter(p => p.date === dt).map(p => p.value); return v.reduce((a, b) => a + b, 0) / v.length; };
@@ -701,14 +710,15 @@ async function viewDelivery(id) {
     const noneSet = A.EVENTS.every(e => d.events[e.key] == null);
     const autoNotes = noneSet ? [{ level: 'info', text: 'Mark the key moments under the video to get timings and angles.' }] : manual ? [{ level: 'info', text: 'Key moments set by hand.' }] : (d.notes || []).map(t => ({ level: 'info', text: t }));
     $('#notes').innerHTML = [...autoNotes, ...notes].map(n => `<div class="note ${n.level}">${n.level === 'risk' ? '⚠️' : n.level === 'tip' ? '💡' : 'ℹ️'} ${esc(n.text)}</div>`).join('');
-    const lights = lightsFor(d, others);
+    const targets = targetsOf(p, d.date), band = bandOf(p, d.date);
+    const lights = lightsFor(d, others, p);
     const fixes = PR.drillsFor(lights, d.metrics, targets);
     const pri = p.programme?.faults || [];
     const cardKeys = ['speed', 'fk_knee_br', 'fk_change', 'trunk_flex', 'sep_max', 'counter_rot', 'stride_pct', 'approach', 'arm_vel', 'seq_ok'].filter(k => lights[k]);
     const count = c => Object.values(lights).filter(l => l.light === c).length;
     $('#score').innerHTML = (cardKeys.length ? `<div class="card tight"><div class="row between"><h4 class="m0">Scorecard</h4><span class="small tl-count"><span class="tl tl-green">●</span> ${count('green')} <span class="tl tl-amber">▲</span> ${count('amber')} <span class="tl tl-red">■</span> ${count('red')}</span></div>
       <div class="tiles">${cardKeys.map(k => { const m = A.METRIC_BY_KEY[k], l = lights[k]; return `<div class="tile tile-${l.light}"><span class="tv">${metricDisplay(k, d.metrics[k])}<small> ${m.bool ? '' : metricUnit(k)}</small></span><span class="tn">${m.label}</span><span class="ts">${LIGHT_SHAPE[l.light]} ${A.LIGHT_LABEL[l.light]}${l.basis === 'personal' ? ' · vs own avg' : ''}</span></div>`; }).join('')}</div>
-      <p class="small muted m0">● Good ▲ Work on ■ Focus. Targets are coaching guides — change them in Settings.</p></div>` : '')
+      <p class="small muted m0">● Good ▲ Work on ■ Focus. Rated against <b>${band.label}</b> targets${p.dob ? ` (age ${ageAt(p.dob, d.date)} on the day)` : ' — add a date of birth to use junior targets'}. Change them in Settings.</p></div>` : '')
       + (fixes.length ? `<h4 class="section">Drills to fix this</h4>${fixes.map(x => faultCard(x.fault, { level: x.level, because: x.because.map(k => A.METRIC_BY_KEY[k].label), action: pri.includes(x.fault.id) ? '<span class="tag">★ current priority</span>' : `<button class="btn sm" data-pri="${x.fault.id}">Set as priority</button>` })).join('')}<p class="small muted sidepad">From your coaching programme's problem / fix library. Faults seen from front-on or behind (side-bend, head, front arm) are under the player's Programme tab.</p>` : '');
     const groups = [...new Set(A.METRICS.map(m => m.group))];
     $('#mx').innerHTML = groups.map(g => {
@@ -748,6 +758,7 @@ async function viewDelivery(id) {
 }
 
 // ---------- settings ----------
+let settingsBand = 'senior';
 async function viewSettings() {
   setTitle('Settings'); setNav('settings');
   const est = await DB.storageEstimate();
@@ -760,10 +771,11 @@ async function viewSettings() {
       <label class="check"><input type="checkbox" id="kv" ${settings.keepVideo ? 'checked' : ''}> Keep videos with each delivery <span class="hint">Turn off to save space — skeleton and key-frame photos are still kept.</span></label>
     </div>
     <div class="card"><h4 class="m0">Traffic-light targets</h4>
-      <p class="small muted">● Good / ▲ Work on / ■ Focus. Defaults are guides for senior bowlers — ease them for juniors. Measures without a target are rated against the bowler's own average.</p>
-      <div class="tgt">${Object.entries(targets).filter(([, t]) => t.type !== 'bool').map(([k, t]) => { const m = A.METRIC_BY_KEY[k]; const f = (name, val) => `<input type="number" step="any" inputmode="decimal" data-k="${k}" data-f="${name}" value="${val}">`;
+      <p class="small muted">● Good / ▲ Work on / ■ Focus. Each bowler is rated against the targets for their age on the day of the delivery, from their date of birth. No date of birth means Senior. Junior targets are eased for front-leg brace, approach speed and trunk drive; counter-rotation, stride length and sequence are the same at every age. Measures without a target are rated against the bowler's own average.</p>
+      <div class="seg" id="tband">${A.BANDS.map(b => `<button data-v="${b.key}">${b.label}</button>`).join('')}</div>
+      <div class="tgt">${Object.entries(targetsByBand[settingsBand]).filter(([, t]) => t.type !== 'bool').map(([k, t]) => { const m = A.METRIC_BY_KEY[k]; const f = (name, val) => `<input type="number" step="any" inputmode="decimal" data-k="${k}" data-f="${name}" value="${val}">`;
         return `<div class="tgt-row"><span>${m.label} <small class="muted">(${m.unit})</small></span>${t.type === 'range' ? `<label>Good from${f('lo', t.lo)}</label><label>to${f('hi', t.hi)}</label>` : `<label>${t.type === 'higher' ? 'Good ≥' : 'Good ≤'}${f('g', t.g)}</label><label>${t.type === 'higher' ? 'Focus <' : 'Focus >'}${f('a', t.a)}</label>`}</div>`; }).join('')}</div>
-      <button class="btn sm" id="tgreset">Reset to defaults</button>
+      <button class="btn sm" id="tgreset">Reset this age group</button>
     </div>
     <div class="card"><h4 class="m0">Your data</h4>
       <p class="small muted">${players.length} players · ${ds.length} deliveries${est ? ` · using ${(est.usage / 1048576).toFixed(0)} MB on this phone` : ''}. Everything is stored only on this phone.</p>
@@ -779,12 +791,14 @@ async function viewSettings() {
   $('#kv').onchange = e => { settings.keepVideo = e.target.checked; saveSettings(); };
   view.querySelectorAll('.tgt input').forEach(inp => inp.onchange = () => {
     const v = Number(inp.value); if (!Number.isFinite(v)) return;
-    let st = {}; try { st = JSON.parse(localStorage.getItem(TARGETS_KEY)) || {}; } catch (e) { /* ignore */ }
-    (st[inp.dataset.k] ||= {})[inp.dataset.f] = v;
+    const st = readTargetEdits();
+    ((st[settingsBand] ||= {})[inp.dataset.k] ||= {})[inp.dataset.f] = v;
     try { localStorage.setItem(TARGETS_KEY, JSON.stringify(st)); } catch (e) { /* ignore */ }
-    targets = loadTargets(); toast('Target saved');
+    targetsByBand = loadTargets(); toast('Target saved');
   });
-  $('#tgreset').onclick = () => { try { localStorage.removeItem(TARGETS_KEY); } catch (e) { /* ignore */ } targets = loadTargets(); viewSettings(); toast('Targets reset'); };
+  $('#tgreset').onclick = () => { const st = readTargetEdits(); delete st[settingsBand]; try { localStorage.setItem(TARGETS_KEY, JSON.stringify(st)); } catch (e) { /* ignore */ } targetsByBand = loadTargets(); viewSettings(); toast('Targets reset for this age group'); };
+  const tb = $('#tband'); tb.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === settingsBand));
+  tb.onclick = e => { if (e.target.dataset.v) { settingsBand = e.target.dataset.v; const y = window.scrollY; viewSettings().then(() => window.scrollTo(0, y)); } };
   $('#csv').onclick = async () => {
     const pm = Object.fromEntries(players.map(p => [p.id, p]));
     const keys = A.METRICS.map(m => m.key);

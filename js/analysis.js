@@ -501,3 +501,27 @@ export function lightFor(key, v, targets = DEFAULT_TARGETS, history = []) {
   const z = (v - mean) / sd * (def.pace === 'higher' ? 1 : -1);
   return { light: z >= 0 ? 'green' : z >= -1 ? 'amber' : 'red', basis: 'personal', why: 'Compared with this bowler’s own average.' };
 }
+
+// ---------- age bands ----------
+// Juniors are rated against eased targets for the measures that depend on size and strength
+// (front-leg brace, approach speed, trunk drive). Safety limits (counter-rotation) are the same at every age.
+// These band values are coaching estimates, not published norms — edit them in Settings.
+export const BANDS = [
+  { key: 'u13', label: 'Under 13', max: 12 },
+  { key: 'u16', label: '13–15', max: 15 },
+  { key: 'u19', label: '16–18', max: 18 },
+  { key: 'senior', label: 'Senior', max: Infinity },
+];
+const BAND_OVERRIDES = {
+  u13: { fk_knee_ffc: { g: 145, a: 130 }, fk_knee_br: { g: 145, a: 130 }, fk_change: { g: -10, a: -20 }, fk_flex: { g: 20, a: 30 }, approach: { g: 3.5, a: 2.8 }, trunk_flex: { g: 20, a: 10 }, sep_max: { g: 20, a: 10 } },
+  u16: { fk_knee_ffc: { g: 150, a: 135 }, fk_knee_br: { g: 150, a: 135 }, fk_change: { g: -5, a: -15 }, fk_flex: { g: 15, a: 25 }, approach: { g: 4, a: 3.3 }, trunk_flex: { g: 25, a: 12 }, sep_max: { g: 25, a: 12 } },
+  u19: { fk_knee_ffc: { g: 155, a: 140 }, fk_knee_br: { g: 155, a: 140 }, fk_change: { g: -5, a: -15 }, fk_flex: { g: 12, a: 22 }, approach: { g: 4.5, a: 3.8 }, trunk_flex: { g: 25, a: 12 }, sep_max: { g: 25, a: 12 } },
+  senior: {},
+};
+export const SAME_ALL_AGES = ['counter_rot', 'stride_pct', 'seq_ok'];
+export function bandForAge(age) { return age == null ? BANDS[3] : BANDS.find(b => age <= b.max); }
+export function defaultTargets(bandKey) {
+  const out = {};
+  for (const k in DEFAULT_TARGETS) out[k] = { ...DEFAULT_TARGETS[k], ...((BAND_OVERRIDES[bandKey] || {})[k] || {}) };
+  return out;
+}
