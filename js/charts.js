@@ -66,7 +66,7 @@ export function progressChart(container, points, { unit = '', dp = 1, risk = nul
   const avg = Object.values(groups).map(ix => ({ x: ix.reduce((a, b) => a + X(b), 0) / ix.length, v: ix.reduce((a, b) => a + points[b].value, 0) / ix.length }));
   if (avg.length > 1) el('path', { d: avg.map((a, i) => `${i ? 'L' : 'M'}${a.x.toFixed(1)},${Y(a.v).toFixed(1)}`).join(''), class: 'avg-line' }, svg);
   else if (n > 1) el('line', { x1: m.l, x2: W - m.r, y1: Y(avg[0].v), y2: Y(avg[0].v), class: 'avg-line' }, svg);
-  points.forEach((p, i) => el('circle', { cx: X(i), cy: Y(p.value), r: 4.5, class: 'dot' }, svg));
+  points.forEach((p, i) => el('circle', { cx: X(i), cy: Y(p.value), r: 5, class: 'dot' + (p.light ? ' dot-' + p.light : '') }, svg));
   // hit layer
   const tip = tooltip(container);
   const hl = el('circle', { r: 7, class: 'dot-hl', style: 'display:none' }, svg);
@@ -82,7 +82,7 @@ export function progressChart(container, points, { unit = '', dp = 1, risk = nul
     const sess = groups[p.date].map(i => points[i].value);
     const sAvg = sess.reduce((a, b) => a + b, 0) / sess.length;
     tip.show(X(best) * r.width / W, Y(p.value) * r.height / H,
-      `<b>${fmt(p.value, dp)} ${unit}</b><br>${fmtDate(p.date)}${p.label ? ' · ' + p.label : ''}<br><span class="muted">Session avg ${fmt(sAvg, dp)} (${sess.length})</span>${onPick ? '<br><span class="link">Tap again to open</span>' : ''}`);
+      `<b>${fmt(p.value, dp)} ${unit}</b>${p.light ? ' · ' + ({ green: 'In range', amber: 'Close', red: 'Out of range' })[p.light] : ''}<br>${fmtDate(p.date)}${p.label ? ' · ' + p.label : ''}<br><span class="muted">Session avg ${fmt(sAvg, dp)} (${sess.length})</span>${onPick ? '<br><span class="link">Tap again to open</span>' : ''}`);
   };
   hit.addEventListener('pointermove', pick);
   hit.addEventListener('pointerdown', ev => { const before = cur; pick(ev); if (onPick && ev.pointerType !== 'mouse' && before === cur) onPick(points[cur]); });

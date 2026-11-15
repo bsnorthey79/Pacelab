@@ -273,12 +273,14 @@ async function viewPlayer(id) {
       const groups = [...new Set(avail.map(m => m.group))];
       body.innerHTML = `<div class="card">
         <select id="metricSel" class="full">${groups.map(g => `<optgroup label="${g}">${avail.filter(m => m.group === g).map(m => `<option value="${m.key}" ${m.key === progressMetric ? 'selected' : ''}>${m.label} (${metricUnit(m.key)})</option>`).join('')}</optgroup>`).join('')}</select>
-        <div id="pc"></div><p class="small muted" id="pdesc"></p><div id="psum" class="stats"></div></div>`;
+        <div id="pc"></div><p class="small pkey" id="pkey"></p><p class="small muted" id="pdesc"></p><div id="psum" class="stats"></div></div>`;
       const draw = () => {
         const def = A.METRIC_BY_KEY[progressMetric];
-        const pts = ds.filter(d => d.metrics?.[progressMetric] != null).map(d => ({ id: d.id, date: d.date, value: metricValueForChart(progressMetric, d.metrics[progressMetric]), label: d.label }));
+        const pts = ds.filter(d => d.metrics?.[progressMetric] != null).map(d => ({ id: d.id, date: d.date, value: metricValueForChart(progressMetric, d.metrics[progressMetric]), label: d.label, light: A.lightFor(progressMetric, d.metrics[progressMetric], targetsOf(p, d.date), ds.filter(o => o.id !== d.id).map(o => o.metrics?.[progressMetric]))?.light }));
         progressChart($('#pc'), pts, { unit: metricUnit(progressMetric), dp: def.unit === 's' ? 0 : def.dp, risk: def.risk ?? null, target: targetsOf(p, today())[progressMetric]?.type !== 'bool' ? targetsOf(p, today())[progressMetric] : null, onPick: p => (location.hash = 'delivery/' + p.id) });
         $('#pdesc').textContent = def.desc + (def.pace ? ` Pace link: ${def.pace === 'higher' ? 'higher' : 'lower'} tends to be better.` : '');
+        const rated = pts.filter(x => x.light); const cnt = c => rated.filter(x => x.light === c).length;
+        $('#pkey').innerHTML = rated.length ? `<span class="tl tl-green">●</span>In range ${cnt('green')} <span class="tl tl-amber">●</span>Close ${cnt('amber')} <span class="tl tl-red">●</span>Out of range ${cnt('red')}` : 'No target for this measure yet, so the dots are not rated.';
         const dates = [...new Set(pts.map(p => p.date))];
         const sAvg = dt => { const v = pts.filter(p => p.date === dt).map(p => p.value); return v.reduce((a, b) => a + b, 0) / v.length; };
         const first = sAvg(dates[0]), last = sAvg(dates[dates.length - 1]);

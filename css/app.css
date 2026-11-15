@@ -206,3 +206,6 @@ nav#nav a { font-size: .72rem; }
 .wk.on { background: color-mix(in srgb, var(--brand2) 10%, var(--card)); border-radius: 8px; }
 .sidepad { margin: 0 4px 8px; }
 .tabs button { flex: none; }
+
+.chart .dot-green { fill: var(--tl-g); } .chart .dot-amber { fill: var(--tl-a); } .chart .dot-red { fill: var(--tl-r); }
+.pkey { margin: 6px 0 0; font-weight: 600; } .pkey .tl { margin-left: 8px; }
