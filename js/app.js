@@ -1,4 +1,4 @@
-// PaceLab — fast-bowling biomechanics app (UI).
+// Cobras — fast-bowling biomechanics app (UI).
 import * as DB from './db.js';
 import * as A from './analysis.js';
 import * as P from './pose.js';
@@ -125,7 +125,7 @@ window.addEventListener('hashchange', route);
 
 // ---------- players ----------
 async function viewPlayers() {
-  setTitle('PaceLab'); setNav('players');
+  setTitle('Cobras'); setNav('players');
   const players = await DB.listPlayers();
   const all = await DB.all('deliveries');
   const stats = {};
@@ -135,7 +135,7 @@ async function viewPlayers() {
     if (d.metrics?.speed != null && (s.best == null || d.metrics.speed > s.best)) s.best = d.metrics.speed;
   }
   view.innerHTML = `
-    ${players.length ? '' : `<div class="card hero"><h2>Welcome to PaceLab</h2><p>Film a delivery side-on, let the app track the body, then review angles and the timing of each phase — and watch it change over the season.</p><p><a href="#guide">How to film for best results →</a></p></div>`}
+    ${players.length ? '' : `<div class="card hero"><h2>Welcome to Cobras</h2><p>Film a delivery side-on, let the app track the body, then review angles and the timing of each phase — and watch it change over the season.</p><p><a href="#guide">How to film for best results →</a></p></div>`}
     <div class="list">${players.map(p => {
       const s = stats[p.id] || { n: 0 };
       return `<a class="item" href="#player/${p.id}">
@@ -786,8 +786,8 @@ async function viewSettings() {
       <label class="btn full">Restore from backup<input type="file" accept=".json,application/json" id="rs" hidden></label>
       <button class="btn danger full" id="clrv">Delete all stored videos</button>
     </div>
-    <div class="card" id="installCard" hidden><h4 class="m0">Install</h4><p class="small muted">Add PaceLab to your home screen to use it like an app, offline.</p><button class="btn primary full" id="inst">Install PaceLab</button></div>
-    <div class="card small muted"><b>About.</b> PaceLab tracks 33 body points per frame with Google's MediaPipe Pose, running entirely on the phone. Measurements are 2D/3D estimates from one camera — use them to track change and guide coaching, not as lab-grade or legality testing.</div>`;
+    <div class="card" id="installCard" hidden><h4 class="m0">Install</h4><p class="small muted">Add Cobras to your home screen to use it like an app, offline.</p><button class="btn primary full" id="inst">Install Cobras</button></div>
+    <div class="card small muted"><b>About.</b> Cobras tracks 33 body points per frame with Google's MediaPipe Pose, running entirely on the phone. Measurements are 2D/3D estimates from one camera — use them to track change and guide coaching, not as lab-grade or legality testing.</div>`;
   const seg = (sel, key, conv) => { const el = $(sel); const paint = () => el.querySelectorAll('button').forEach(b => b.classList.toggle('on', String(settings[key]) === b.dataset.v)); el.onclick = e => { if (e.target.dataset.v) { settings[key] = conv(e.target.dataset.v); saveSettings(); paint(); } }; paint(); };
   seg('#unit', 'unit', v => v); seg('#cx', 'complexity', Number);
   $('#kv').onchange = e => { settings.keepVideo = e.target.checked; saveSettings(); };
@@ -807,9 +807,9 @@ async function viewSettings() {
     const head = ['player', 'arm', 'date', 'label', ...A.METRICS.map(m => `${m.label} (${metricUnit(m.key)})`), 'coach notes'];
     const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rows = ds.sort((a, b) => a.date.localeCompare(b.date)).map(d => [pm[d.playerId]?.name, pm[d.playerId]?.arm, d.date, d.label, ...keys.map(k => d.metrics?.[k] != null ? metricDisplay(k, d.metrics[k]).replace(/[✓✗] /, '') : ''), d.comments].map(q).join(','));
-    download(new Blob(['﻿' + [head.map(q).join(','), ...rows].join('\r\n')], { type: 'text/csv' }), `pacelab-${today()}.csv`);
+    download(new Blob(['﻿' + [head.map(q).join(','), ...rows].join('\r\n')], { type: 'text/csv' }), `cobras-${today()}.csv`);
   };
-  $('#bk').onclick = async () => { toast('Preparing backup…'); download(await DB.exportBackup(), `pacelab-backup-${today()}.json`); };
+  $('#bk').onclick = async () => { toast('Preparing backup…'); download(await DB.exportBackup(), `cobras-backup-${today()}.json`); };
   $('#rs').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { const r = await DB.importBackup(f); toast(`Restored ${r.players} players, ${r.deliveries} deliveries`); viewSettings(); } catch (err) { modal(`<h3>Restore failed</h3><p>${esc(err.message)}</p>`); } };
   $('#clrv').onclick = async () => { if (await confirmBox('Delete all videos?', 'Measurements, skeletons and key-frame photos are kept.')) { for (const v of await DB.all('videos')) await DB.del('videos', v.id); for (const d of ds) if (d.video?.kept) { d.video.kept = false; await DB.put('deliveries', d); } toast('Videos deleted'); viewSettings(); } };
   if (deferredInstall) { $('#installCard').hidden = false; $('#inst').onclick = async () => { deferredInstall.prompt(); deferredInstall = null; $('#installCard').hidden = true; }; }

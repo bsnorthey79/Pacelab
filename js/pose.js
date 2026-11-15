@@ -1,4 +1,4 @@
-// PaceLab — video frame stepping + MediaPipe Pose (runs fully on-device, offline).
+// Cobras — video frame stepping + MediaPipe Pose (runs fully on-device, offline).
 /* global Pose */
 
 let pose = null, poseComplexity = null, pending = null;

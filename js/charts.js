@@ -1,4 +1,4 @@
-// PaceLab — small dependency-free SVG charts with tap/hover tooltips.
+// Cobras — small dependency-free SVG charts with tap/hover tooltips.
 const NS = 'http://www.w3.org/2000/svg';
 const el = (tag, attrs = {}, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
 

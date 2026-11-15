@@ -1,4 +1,4 @@
-// PaceLab — biomechanics analysis (pure functions, no DOM).
+// Cobras — biomechanics analysis (pure functions, no DOM).
 // Input: per-frame pose landmarks from MediaPipe Pose.
 // Coordinates: image landmarks in pixels (x right, y down); world landmarks in metres (hip-centred).
 

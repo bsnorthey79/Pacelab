@@ -1,4 +1,4 @@
-// PaceLab — problem/fix library and 12-week winter schedule,
+// Cobras — problem/fix library and 12-week winter schedule,
 // taken from Ben's "Young Fast Bowlers: Biomechanics Coaching Programme".
 
 // Faults 1–4 are injury-risk faults and come before performance faults (5–12).

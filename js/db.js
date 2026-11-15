@@ -1,5 +1,5 @@
-// PaceLab — IndexedDB storage (all data stays on the phone).
-const DB_NAME = 'pacelab';
+// Cobras — IndexedDB storage (all data stays on the phone).
+const DB_NAME = 'pacelab'; // original app name, kept so existing players and deliveries stay on the phone
 const DB_VER = 2;
 const STORES = ['players', 'deliveries', 'frames', 'videos', 'snaps', 'strips'];
 let dbp = null;
@@ -60,7 +60,7 @@ const blobToDataURL = b => new Promise(r => { const fr = new FileReader(); fr.on
 const dataURLToBlob = async u => (await fetch(u)).blob();
 
 export async function exportBackup() {
-  const out = { app: 'PaceLab', version: 1, exported: new Date().toISOString(), players: await all('players'), deliveries: await all('deliveries'), frames: [], snaps: [] };
+  const out = { app: 'Cobras', version: 1, exported: new Date().toISOString(), players: await all('players'), deliveries: await all('deliveries'), frames: [], snaps: [] };
   for (const f of await all('frames')) out.frames.push({ id: f.id, n: f.n, t: b64(f.t.buffer), lm: b64(f.lm.buffer), wl: b64(f.wl.buffer), ok: b64(f.ok.buffer) });
   for (const s of await all('snaps')) {
     const o = { id: s.id, frames: s.frames || {}, imgs: {} };
@@ -71,7 +71,7 @@ export async function exportBackup() {
 }
 export async function importBackup(file) {
   const data = JSON.parse(await file.text());
-  if (data.app !== 'PaceLab') throw new Error('Not a PaceLab backup file');
+  if (data.app !== 'Cobras' && data.app !== 'Cobras') throw new Error('Not a Cobras backup file');
   for (const p of data.players) await put('players', p);
   for (const d of data.deliveries) await put('deliveries', d);
   for (const f of data.frames) await put('frames', { id: f.id, n: f.n, t: new Float64Array(unb64(f.t)), lm: new Float32Array(unb64(f.lm)), wl: new Float32Array(unb64(f.wl)), ok: new Uint8Array(unb64(f.ok)) });

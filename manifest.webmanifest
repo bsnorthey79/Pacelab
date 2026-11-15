@@ -1,6 +1,6 @@
 {
-  "name": "PaceLab – Fast Bowling Analysis",
-  "short_name": "PaceLab",
+  "name": "Cobras – Fast Bowling Analysis",
+  "short_name": "Cobras",
   "description": "Fast-bowling biomechanics: body angles, phase timing and progress tracking from your phone camera.",
   "start_url": "./#players",
   "scope": "./",

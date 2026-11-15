@@ -1,22 +1,22 @@
-# PaceLab — fast-bowling biomechanics on your Android phone
+# Cobras — fast-bowling biomechanics on your Android phone
 
-PaceLab is a web app: you open it in Chrome on Android, then add it to your home screen. After that it opens like a normal app and works offline. Every player, video and measurement stays on the phone.
+Cobras is a web app: you open it in Chrome on Android, then add it to your home screen. After that it opens like a normal app and works offline. Every player, video and measurement stays on the phone.
 
 ## 1. Put it online (one-off, free, about 5 minutes)
 
 The camera only works when the page is served over HTTPS, so the folder needs a free host.
 
 **Easiest: Netlify Drop**
-1. On a PC, unzip `pacelab.zip`.
+1. On a PC, unzip `cobras.zip`.
 2. Go to https://app.netlify.com/drop and sign up for a free account. Without an account, the site is deleted after an hour.
-3. Drag the unzipped `pacelab` folder onto the page.
+3. Drag the unzipped `cobras` folder onto the page.
 4. Netlify gives you a link like `https://something.netlify.app`. You can rename it under *Site configuration → Change site name*.
 
 **Alternative: GitHub Pages.** Push the folder to a repository and turn on *Settings → Pages* (branch `main`, folder `/`). Use git or GitHub Desktop rather than the web uploader, because `pose_landmark_heavy.tflite` is over the web uploader's 25 MB limit.
 
 ## 2. Install on the phone
 1. Open your link in **Chrome** on the Android phone.
-2. Go to *Settings → Install PaceLab*, or use Chrome's ⋮ menu → *Add to home screen / Install app*.
+2. Go to *Settings → Install Cobras*, or use Chrome's ⋮ menu → *Add to home screen / Install app*.
 3. Open it once while you have signal so the pose model gets cached (about 20 MB). After that it works offline at the nets.
 
 ## 3. Using it
