@@ -50,7 +50,8 @@ export const METRICS = [
   { key: 'sep_max', label: 'Max hip–shoulder separation', unit: '°', group: 'Trunk', dp: 0, pace: 'higher', desc: 'Estimate. Largest lead of hips over shoulders between BFC and release.' },
   { key: 'counter_rot', label: 'Shoulder counter-rotation', unit: '°', group: 'Trunk', dp: 0, pace: null, risk: 30, desc: 'Estimate. How far the shoulders twist back toward side-on after BFC. Above ~30° is linked with lower-back injury risk (mixed action).' },
 
-  { key: 'arm_vel', label: 'Peak arm speed', unit: '°/s', group: 'Arm', dp: 0, pace: 'higher', desc: 'Peak angular velocity of the bowling arm (shoulder→wrist) in the side view.' },
+  { key: 'arm_vel', label: 'Arm rotation speed', unit: '°/s', group: 'Arm', dp: 0, pace: 'higher', desc: 'Peak angular velocity of the bowling arm (shoulder→wrist) in the side view.' },
+  { key: 'arm_speed', label: 'Bowling arm speed', unit: 'km/h', group: 'Arm', dp: 1, pace: 'higher', desc: 'Peak speed of the bowling hand around the shoulder: arm rotation speed × arm length (shoulder to ball). It leaves out the body’s forward speed, so it is lower than projected ball speed. Needs player height.' },
   { key: 'release_h', label: 'Release height', unit: '% height', group: 'Arm', dp: 0, pace: null, desc: 'Height of the bowling hand above the ground at release, as % of standing height.' },
   { key: 'elbow_ext', label: 'Elbow extension (indicative)', unit: '°', group: 'Arm', dp: 0, pace: null, desc: 'Change in elbow angle from upper arm horizontal to release, from 2D video. Indicative only — NOT a legality test.' },
 
@@ -410,6 +411,13 @@ export function computeMetrics(s, events, player = {}, extra = {}) {
       m.arm_vel = armVel[ia];
       const ref = ok(ffc) ? s.t[ffc] : s.t[br];
       m.seq_arm = s.t[ia] - ref;
+    }
+    // Arm speed as a linear speed: peak rotation × (shoulder→wrist length + hand reach).
+    if (pxPerM && m.arm_vel != null) {
+      const lens = [];
+      for (let i = Math.max(0, br - F(0.1)); i <= Math.min(s.n - 1, br + F(0.03)); i++) lens.push(Math.hypot(s.x[sd.wr][i] - s.x[sd.sh][i], s.y[sd.wr][i] - s.y[sd.sh][i]));
+      const armLen = quantile(lens, 0.9) / pxPerM + 0.055 * H;
+      if (armLen > 0.3 && armLen < 1.2) m.arm_speed = m.arm_vel * Math.PI / 180 * armLen * 3.6;
     }
     // Projected ball speed: peak hand speed around release.
     if (pxPerM) {

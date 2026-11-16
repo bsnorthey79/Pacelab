@@ -42,19 +42,19 @@ function metricDisplay(key, v) {
   const d = A.METRIC_BY_KEY[key];
   if (v == null || !Number.isFinite(v)) return '–';
   if (d.bool) return v ? '✓ Yes' : '✗ No';
-  if (key === 'speed' || key === 'proj_speed') return speedOut(v).toFixed(1);
+  if (key === 'speed' || key === 'proj_speed' || key === 'arm_speed') return speedOut(v).toFixed(1);
   if (d.unit === 's') return (v * 1000).toFixed(0);
   const out = v.toFixed(d.dp);
   return /^-0(\.0+)?$/.test(out) ? out.slice(1) : out;
 }
 function metricUnit(key) {
   const d = A.METRIC_BY_KEY[key];
-  if (key === 'speed' || key === 'proj_speed') return speedUnit();
+  if (key === 'speed' || key === 'proj_speed' || key === 'arm_speed') return speedUnit();
   if (d.unit === 's') return 'ms';
   return d.unit;
 }
 function metricValueForChart(key, v) {
-  if (key === 'speed' || key === 'proj_speed') return speedOut(v);
+  if (key === 'speed' || key === 'proj_speed' || key === 'arm_speed') return speedOut(v);
   if (A.METRIC_BY_KEY[key].unit === 's') return v * 1000;
   return v;
 }
@@ -303,7 +303,7 @@ async function viewPlayer(id) {
     } else {
       const withSpeed = ds.filter(d => d.metrics?.speed != null);
       if (withSpeed.length < 4) { body.innerHTML = `<div class="card"><p>Enter ball speeds (from a speed gun or radar app) on at least <b>4 deliveries</b> to see which parts of ${esc(p.name)}'s action go with extra pace.</p><p class="muted small">${withSpeed.length} so far.</p></div>`; return; }
-      const rows = A.METRICS.filter(m => m.key !== 'speed' && m.key !== 'proj_speed' && !m.bool).map(m => {
+      const rows = A.METRICS.filter(m => m.key !== 'speed' && m.key !== 'proj_speed' && m.key !== 'arm_speed' && !m.bool).map(m => {
         const pairs = withSpeed.filter(d => d.metrics[m.key] != null);
         const r = A.pearson(pairs.map(d => d.metrics[m.key]), pairs.map(d => d.metrics.speed));
         return { m, r, n: pairs.length };
@@ -564,7 +564,7 @@ async function viewDelivery(id) {
   const allDs = await DB.deliveriesFor(d.playerId);
   let cal = projCal(allDs);
   let others = allDs.filter(x => x.id !== id).map(x => withCal(x, cal.k));
-  if (d.metrics.proj_speed == null && A.EVENTS.some(e => d.events[e.key] != null)) { const m2 = A.computeMetrics(s, d.events, p, { speed: d.metrics.speed }); if (m2.proj_speed != null) { d.metrics = m2; await DB.put('deliveries', d); } }
+  if ((d.metrics.proj_speed == null || d.metrics.arm_speed == null) && A.EVENTS.some(e => d.events[e.key] != null)) { const m2 = A.computeMetrics(s, d.events, p, { speed: d.metrics.speed }); if (m2.proj_speed != null || m2.arm_speed != null) { d.metrics = m2; await DB.put('deliveries', d); } }
 
   view.innerHTML = `
     <div class="card tight">
@@ -732,13 +732,13 @@ async function viewDelivery(id) {
     const lights = lightsFor(dv, others, p);
     const fixes = PR.drillsFor(lights, dm, targets);
     const pri = p.programme?.faults || [];
-    const cardKeys = ['speed', 'fk_knee_br', 'fk_change', 'trunk_flex', 'sep_max', 'counter_rot', 'stride_pct', 'approach', 'arm_vel', 'seq_ok'].filter(k => lights[k]);
+    const cardKeys = ['speed', 'fk_knee_br', 'fk_change', 'trunk_flex', 'sep_max', 'counter_rot', 'stride_pct', 'approach', 'arm_speed', 'arm_vel', 'seq_ok'].filter(k => lights[k]);
     const count = c => Object.values(lights).filter(l => l.light === c).length;
     const kn = (label, val, unit, sub) => `<div class="kn"><span class="kv">${val}<small> ${val === '–' ? '' : unit}</small></span><span class="kl">${label}</span><span class="ks">${sub || ''}</span></div>`;
     const noH = !(Number(p.heightCm) > 0);
     const keyCard = `<div class="card tight"><h4 class="m0">Key numbers</h4><div class="kns">
       ${kn('Delivery stride', dm.stride_cm != null ? metricDisplay('stride_cm', dm.stride_cm) : metricDisplay('stride_pct', dm.stride_pct), dm.stride_cm != null ? 'cm' : '% height', dm.stride_cm != null ? metricDisplay('stride_pct', dm.stride_pct) + '% of height' : dm.stride_pct == null ? 'Mark BFC and FFC' : 'Add height for cm')}
-      ${kn('Arm speed', metricDisplay('arm_vel', dm.arm_vel), '°/s', dm.arm_vel == null ? 'Mark release' : 'Peak, bowling arm')}
+      ${dm.arm_speed != null ? kn('Bowling arm speed', metricDisplay('arm_speed', dm.arm_speed), speedUnit(), `${settings.unit === 'mph' ? (dm.arm_speed).toFixed(0) + ' km/h' : (dm.arm_speed / KMH_PER_MPH).toFixed(0) + ' mph'} · ${metricDisplay('arm_vel', dm.arm_vel)} °/s`) : kn('Bowling arm speed', metricDisplay('arm_vel', dm.arm_vel), '°/s', dm.arm_vel == null ? 'Mark release' : 'Add player height for mph / km/h')}
       ${kn('Run-up speed', metricDisplay('approach', dm.approach), 'm/s', dm.approach != null ? (dm.approach * 3.6).toFixed(0) + ' km/h · ' + (dm.approach * 2.23694).toFixed(0) + ' mph' : noH ? 'Add player height' : 'Mark take-off or BFC')}
       ${kn('Projected ball speed', metricDisplay('proj_speed', dm.proj_speed), speedUnit(), dm.proj_speed == null ? (noH ? 'Add player height' : 'Mark release') : cal.k !== 1 ? `Calibrated to ${cal.n} speed-gun readings` : 'Estimate from video')}
     </div>${dm.proj_speed != null && dm.speed != null ? `<p class="small muted m0">Speed gun for this ball: <b>${metricDisplay('speed', dm.speed)} ${speedUnit()}</b>.</p>` : dm.proj_speed != null && cal.k === 1 ? `<p class="small muted m0">Projected speed is a rough guide. Enter speed-gun readings on 3 or more deliveries and it calibrates to this bowler.</p>` : ''}</div>`;
