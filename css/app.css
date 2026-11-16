@@ -209,3 +209,10 @@ nav#nav a { font-size: .72rem; }
 
 .chart .dot-green { fill: var(--tl-g); } .chart .dot-amber { fill: var(--tl-a); } .chart .dot-red { fill: var(--tl-r); }
 .pkey { margin: 6px 0 0; font-weight: 600; } .pkey .tl { margin-left: 8px; }
+
+.kns { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 10px 0 8px; }
+.kn { display: flex; flex-direction: column; padding: 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); }
+.kn .kv { font-size: 1.45rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.kn .kv small { font-size: .7rem; font-weight: 500; color: var(--muted); }
+.kn .kl { font-size: .82rem; font-weight: 600; color: var(--ink2); margin-top: 2px; }
+.kn .ks { font-size: .72rem; color: var(--muted); }

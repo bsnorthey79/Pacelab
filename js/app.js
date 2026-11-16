@@ -42,23 +42,31 @@ function metricDisplay(key, v) {
   const d = A.METRIC_BY_KEY[key];
   if (v == null || !Number.isFinite(v)) return '–';
   if (d.bool) return v ? '✓ Yes' : '✗ No';
-  if (key === 'speed') return speedOut(v).toFixed(1);
+  if (key === 'speed' || key === 'proj_speed') return speedOut(v).toFixed(1);
   if (d.unit === 's') return (v * 1000).toFixed(0);
   const out = v.toFixed(d.dp);
   return /^-0(\.0+)?$/.test(out) ? out.slice(1) : out;
 }
 function metricUnit(key) {
   const d = A.METRIC_BY_KEY[key];
-  if (key === 'speed') return speedUnit();
+  if (key === 'speed' || key === 'proj_speed') return speedUnit();
   if (d.unit === 's') return 'ms';
   return d.unit;
 }
 function metricValueForChart(key, v) {
-  if (key === 'speed') return speedOut(v);
+  if (key === 'speed' || key === 'proj_speed') return speedOut(v);
   if (A.METRIC_BY_KEY[key].unit === 's') return v * 1000;
   return v;
 }
 
+// Projected ball speed is scaled to the bowler's own speed-gun readings once there are three or more.
+function projCal(list) {
+  const r = list.filter(d => d.metrics?.speed > 0 && d.metrics?.proj_speed > 0).map(d => d.metrics.speed / d.metrics.proj_speed).sort((a, b) => a - b);
+  if (r.length < 3) return { k: 1, n: r.length };
+  const mid = r.length >> 1;
+  return { k: r.length % 2 ? r[mid] : (r[mid - 1] + r[mid]) / 2, n: r.length };
+}
+const withCal = (d, k) => (k === 1 || d.metrics?.proj_speed == null ? d : { ...d, metrics: { ...d.metrics, proj_speed: d.metrics.proj_speed * k } });
 function lightsFor(d, others, p) {
   const lights = {}, targets = targetsOf(p, d.date);
   for (const m of A.METRICS) { const l = A.lightFor(m.key, d.metrics?.[m.key], targets, others.map(o => o.metrics?.[m.key])); if (l) lights[m.key] = l; }
@@ -194,7 +202,9 @@ async function viewPlayer(id) {
   const p = await DB.get('players', id);
   if (!p) { location.hash = 'players'; return; }
   setTitle(p.name, 'players'); setNav('players');
-  const ds = await DB.deliveriesFor(id);
+  const rawDs = await DB.deliveriesFor(id);
+  const cal = projCal(rawDs);
+  const ds = rawDs.map(d => withCal(d, cal.k));
   const a = age(p.dob);
   view.innerHTML = `
     <div class="card">
@@ -293,7 +303,7 @@ async function viewPlayer(id) {
     } else {
       const withSpeed = ds.filter(d => d.metrics?.speed != null);
       if (withSpeed.length < 4) { body.innerHTML = `<div class="card"><p>Enter ball speeds (from a speed gun or radar app) on at least <b>4 deliveries</b> to see which parts of ${esc(p.name)}'s action go with extra pace.</p><p class="muted small">${withSpeed.length} so far.</p></div>`; return; }
-      const rows = A.METRICS.filter(m => m.key !== 'speed' && !m.bool).map(m => {
+      const rows = A.METRICS.filter(m => m.key !== 'speed' && m.key !== 'proj_speed' && !m.bool).map(m => {
         const pairs = withSpeed.filter(d => d.metrics[m.key] != null);
         const r = A.pearson(pairs.map(d => d.metrics[m.key]), pairs.map(d => d.metrics.speed));
         return { m, r, n: pairs.length };
@@ -551,7 +561,10 @@ async function viewDelivery(id) {
   const vrec = d.video.kept ? await DB.get('videos', id) : null;
   const s = A.prepareSeries(frames, { width: d.video.width });
   const W = d.video.width, H = d.video.height;
-  const others = (await DB.deliveriesFor(d.playerId)).filter(x => x.id !== id);
+  const allDs = await DB.deliveriesFor(d.playerId);
+  let cal = projCal(allDs);
+  let others = allDs.filter(x => x.id !== id).map(x => withCal(x, cal.k));
+  if (d.metrics.proj_speed == null && A.EVENTS.some(e => d.events[e.key] != null)) { const m2 = A.computeMetrics(s, d.events, p, { speed: d.metrics.speed }); if (m2.proj_speed != null) { d.metrics = m2; await DB.put('deliveries', d); } }
 
   view.innerHTML = `
     <div class="card tight">
@@ -701,32 +714,43 @@ async function viewDelivery(id) {
     renderMetrics(); draw();
   }
   function renderMetrics() {
+    cal = projCal(allDs.map(x => (x.id === id ? d : x)));
+    others = allDs.filter(x => x.id !== id).map(x => withCal(x, cal.k));
+    const dv = withCal(d, cal.k), dm = dv.metrics;
     const cmpId = $('#cmp').value;
     let ref = {}, refLabel = 'avg';
     if (cmpId) { ref = others.find(o => o.id === cmpId)?.metrics || {}; refLabel = 'other'; }
     else {
       for (const m of A.METRICS) { const v = others.map(o => o.metrics?.[m.key]).filter(x => x != null); if (v.length) ref[m.key] = v.reduce((a, b) => a + b, 0) / v.length; }
     }
-    const notes = A.coachingNotes(d.metrics);
+    const notes = A.coachingNotes(dm);
     const manual = JSON.stringify(d.events) !== JSON.stringify(d.autoEvents);
     const noneSet = A.EVENTS.every(e => d.events[e.key] == null);
     const autoNotes = noneSet ? [{ level: 'info', text: 'Mark the key moments under the video to get timings and angles.' }] : manual ? [{ level: 'info', text: 'Key moments set by hand.' }] : (d.notes || []).map(t => ({ level: 'info', text: t }));
     $('#notes').innerHTML = [...autoNotes, ...notes].map(n => `<div class="note ${n.level}">${n.level === 'risk' ? '⚠️' : n.level === 'tip' ? '💡' : 'ℹ️'} ${esc(n.text)}</div>`).join('');
     const targets = targetsOf(p, d.date), band = bandOf(p, d.date);
-    const lights = lightsFor(d, others, p);
-    const fixes = PR.drillsFor(lights, d.metrics, targets);
+    const lights = lightsFor(dv, others, p);
+    const fixes = PR.drillsFor(lights, dm, targets);
     const pri = p.programme?.faults || [];
     const cardKeys = ['speed', 'fk_knee_br', 'fk_change', 'trunk_flex', 'sep_max', 'counter_rot', 'stride_pct', 'approach', 'arm_vel', 'seq_ok'].filter(k => lights[k]);
     const count = c => Object.values(lights).filter(l => l.light === c).length;
-    $('#score').innerHTML = (cardKeys.length ? `<div class="card tight"><div class="row between"><h4 class="m0">Scorecard</h4><span class="small tl-count"><span class="tl tl-green">●</span> ${count('green')} <span class="tl tl-amber">▲</span> ${count('amber')} <span class="tl tl-red">■</span> ${count('red')}</span></div>
-      <div class="tiles">${cardKeys.map(k => { const m = A.METRIC_BY_KEY[k], l = lights[k]; return `<div class="tile tile-${l.light}"><span class="tv">${metricDisplay(k, d.metrics[k])}<small> ${m.bool ? '' : metricUnit(k)}</small></span><span class="tn">${m.label}</span><span class="ts">${LIGHT_SHAPE[l.light]} ${A.LIGHT_LABEL[l.light]}${l.basis === 'personal' ? ' · vs own avg' : ''}</span></div>`; }).join('')}</div>
+    const kn = (label, val, unit, sub) => `<div class="kn"><span class="kv">${val}<small> ${val === '–' ? '' : unit}</small></span><span class="kl">${label}</span><span class="ks">${sub || ''}</span></div>`;
+    const noH = !(Number(p.heightCm) > 0);
+    const keyCard = `<div class="card tight"><h4 class="m0">Key numbers</h4><div class="kns">
+      ${kn('Delivery stride', dm.stride_cm != null ? metricDisplay('stride_cm', dm.stride_cm) : metricDisplay('stride_pct', dm.stride_pct), dm.stride_cm != null ? 'cm' : '% height', dm.stride_cm != null ? metricDisplay('stride_pct', dm.stride_pct) + '% of height' : dm.stride_pct == null ? 'Mark BFC and FFC' : 'Add height for cm')}
+      ${kn('Arm speed', metricDisplay('arm_vel', dm.arm_vel), '°/s', dm.arm_vel == null ? 'Mark release' : 'Peak, bowling arm')}
+      ${kn('Run-up speed', metricDisplay('approach', dm.approach), 'm/s', dm.approach != null ? (dm.approach * 3.6).toFixed(0) + ' km/h · ' + (dm.approach * 2.23694).toFixed(0) + ' mph' : noH ? 'Add player height' : 'Mark take-off or BFC')}
+      ${kn('Projected ball speed', metricDisplay('proj_speed', dm.proj_speed), speedUnit(), dm.proj_speed == null ? (noH ? 'Add player height' : 'Mark release') : cal.k !== 1 ? `Calibrated to ${cal.n} speed-gun readings` : 'Estimate from video')}
+    </div>${dm.proj_speed != null && dm.speed != null ? `<p class="small muted m0">Speed gun for this ball: <b>${metricDisplay('speed', dm.speed)} ${speedUnit()}</b>.</p>` : dm.proj_speed != null && cal.k === 1 ? `<p class="small muted m0">Projected speed is a rough guide. Enter speed-gun readings on 3 or more deliveries and it calibrates to this bowler.</p>` : ''}</div>`;
+    $('#score').innerHTML = keyCard + (cardKeys.length ? `<div class="card tight"><div class="row between"><h4 class="m0">Scorecard</h4><span class="small tl-count"><span class="tl tl-green">●</span> ${count('green')} <span class="tl tl-amber">▲</span> ${count('amber')} <span class="tl tl-red">■</span> ${count('red')}</span></div>
+      <div class="tiles">${cardKeys.map(k => { const m = A.METRIC_BY_KEY[k], l = lights[k]; return `<div class="tile tile-${l.light}"><span class="tv">${metricDisplay(k, dm[k])}<small> ${m.bool ? '' : metricUnit(k)}</small></span><span class="tn">${m.label}</span><span class="ts">${LIGHT_SHAPE[l.light]} ${A.LIGHT_LABEL[l.light]}${l.basis === 'personal' ? ' · vs own avg' : ''}</span></div>`; }).join('')}</div>
       <p class="small muted m0">● Good ▲ Work on ■ Focus. Rated against <b>${band.label}</b> targets${p.dob ? ` (age ${ageAt(p.dob, d.date)} on the day)` : ' — add a date of birth to use junior targets'}. Change them in Settings.</p></div>` : '')
       + (fixes.length ? `<h4 class="section">Drills to fix this</h4>${fixes.map(x => faultCard(x.fault, { level: x.level, because: x.because.map(k => A.METRIC_BY_KEY[k].label), action: pri.includes(x.fault.id) ? '<span class="tag">★ current priority</span>' : `<button class="btn sm" data-pri="${x.fault.id}">Set as priority</button>` })).join('')}<p class="small muted sidepad">From your coaching programme's problem / fix library. Faults seen from front-on or behind (side-bend, head, front arm) are under the player's Programme tab.</p>` : '');
     const groups = [...new Set(A.METRICS.map(m => m.group))];
     $('#mx').innerHTML = groups.map(g => {
-      const ms = A.METRICS.filter(m => m.group === g && !(m.key === 'stride_cm' && d.metrics.stride_cm == null));
+      const ms = A.METRICS.filter(m => m.group === g && !(m.key === 'stride_cm' && dm.stride_cm == null));
       return `<div class="card tight"><h4 class="m0">${g}</h4>${ms.map(m => {
-        const v = d.metrics[m.key], r = ref[m.key];
+        const v = dm[m.key], r = ref[m.key];
         let delta = '';
         if (v != null && r != null && !m.bool && others.length) {
           const dv = metricValueForChart(m.key, v) - metricValueForChart(m.key, r);

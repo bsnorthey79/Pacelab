@@ -26,14 +26,16 @@ export const EVENTS = [
 export const METRICS = [
   { key: 'speed', label: 'Ball speed', unit: 'km/h', group: 'Result', dp: 1, pace: 'higher', desc: 'Entered from a speed gun / radar. Used to see which movement changes go with extra pace.' },
 
+  { key: 'proj_speed', label: 'Projected ball speed', unit: 'km/h', group: 'Result', dp: 1, pace: 'higher', desc: 'Estimate from the video: speed of the bowling hand at release (wrist speed plus the extra reach of the hand). Needs player height, a fixed side-on camera and slow motion. Becomes more accurate once a few speed-gun readings are entered, which calibrate it for this bowler.' },
+
   { key: 't_flight', label: 'Bound (flight) time', unit: 's', group: 'Timing', dp: 3, pace: null, desc: 'Take-off to back foot contact.' },
   { key: 't_stride', label: 'Delivery stride time', unit: 's', group: 'Timing', dp: 3, pace: null, desc: 'Back foot contact to front foot contact.' },
   { key: 't_ffc_br', label: 'Front foot to release', unit: 's', group: 'Timing', dp: 3, pace: null, desc: 'Front foot contact to ball release — how quickly energy is transferred up the chain once the front leg plants.' },
   { key: 't_bfc_br', label: 'Back foot to release', unit: 's', group: 'Timing', dp: 3, pace: null, desc: 'Total delivery time from back foot contact to release.' },
 
-  { key: 'approach', label: 'Approach speed', unit: 'm/s', group: 'Run-up', dp: 1, pace: 'higher', desc: 'Hip speed just before take-off. Needs player height and a fixed (non-panning) camera.' },
-  { key: 'stride_pct', label: 'Stride length', unit: '% height', group: 'Run-up', dp: 0, pace: null, desc: 'Back-foot landing position to front-foot landing position, as a percentage of standing height.' },
-  { key: 'stride_cm', label: 'Stride length', unit: 'cm', group: 'Run-up', dp: 0, pace: null, desc: 'Needs player height.' },
+  { key: 'approach', label: 'Run-up speed', unit: 'm/s', group: 'Run-up', dp: 1, pace: 'higher', desc: 'Hip speed just before take-off. Needs player height and a fixed (non-panning) camera.' },
+  { key: 'stride_pct', label: 'Delivery stride length', unit: '% height', group: 'Run-up', dp: 0, pace: null, desc: 'Back-foot landing position to front-foot landing position, as a percentage of standing height.' },
+  { key: 'stride_cm', label: 'Delivery stride length', unit: 'cm', group: 'Run-up', dp: 0, pace: null, desc: 'Needs player height.' },
 
   { key: 'bk_knee_bfc', label: 'Back knee at BFC', unit: '°', group: 'Legs', dp: 0, pace: null, desc: 'Back knee angle as the back foot lands (180° = straight).' },
   { key: 'fk_knee_ffc', label: 'Front knee at FFC', unit: '°', group: 'Legs', dp: 0, pace: null, desc: 'Front knee angle as the front foot lands (180° = straight).' },
@@ -408,6 +410,18 @@ export function computeMetrics(s, events, player = {}, extra = {}) {
       m.arm_vel = armVel[ia];
       const ref = ok(ffc) ? s.t[ffc] : s.t[br];
       m.seq_arm = s.t[ia] - ref;
+    }
+    // Projected ball speed: peak hand speed around release.
+    if (pxPerM) {
+      const vx = deriv(s.x[sd.wr], s.t), vy = deriv(s.y[sd.wr], s.t);
+      let wrist = 0, omega = 0;
+      for (let i = Math.max(0, br - F(0.04)); i <= Math.min(s.n - 1, br + F(0.02)); i++) {
+        wrist = Math.max(wrist, Math.hypot(vx[i], vy[i]) / pxPerM);
+        omega = Math.max(omega, Math.abs(armVel[i]) * Math.PI / 180);
+      }
+      const handReach = 0.055 * H; // wrist to ball centre
+      const ball = wrist + omega * handReach;
+      if (ball > 5 && ball < 60) m.proj_speed = ball * 3.6;
     }
     const ca = contactAnalysis(s, player.arm);
     const gy = ca.ground[br];
