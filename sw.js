@@ -1,5 +1,5 @@
 // Cobras service worker — cache-first so the app works offline at the nets.
-const VERSION = 'cobras-v12';
+const VERSION = 'cobras-v13';
 const CORE = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/analysis.js', 'js/db.js', 'js/pose.js', 'js/charts.js', 'js/programme.js',

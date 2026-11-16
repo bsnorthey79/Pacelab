@@ -31,7 +31,7 @@ export const METRICS = [
   { key: 't_flight', label: 'Bound (flight) time', unit: 's', group: 'Timing', dp: 3, pace: null, desc: 'Take-off to back foot contact.' },
   { key: 't_stride', label: 'Delivery stride time', unit: 's', group: 'Timing', dp: 3, pace: null, desc: 'Back foot contact to front foot contact.' },
   { key: 't_ffc_br', label: 'Front foot to release', unit: 's', group: 'Timing', dp: 3, pace: null, desc: 'Front foot contact to ball release — how quickly energy is transferred up the chain once the front leg plants.' },
-  { key: 't_bfc_br', label: 'Back foot to release', unit: 's', group: 'Timing', dp: 3, pace: null, desc: 'Total delivery time from back foot contact to release.' },
+  { key: 't_bfc_br', label: 'Back foot down to release', unit: 's', group: 'Timing', dp: 3, pace: null, desc: 'Total delivery time from back foot contact to release.' },
 
   { key: 'approach', label: 'Run-up speed', unit: 'm/s', group: 'Run-up', dp: 1, pace: 'higher', desc: 'Hip speed just before take-off. Needs player height and a fixed (non-panning) camera.' },
   { key: 'stride_pct', label: 'Delivery stride length', unit: '% height', group: 'Run-up', dp: 0, pace: null, desc: 'Back-foot landing position to front-foot landing position, as a percentage of standing height.' },
